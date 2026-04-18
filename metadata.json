@@ -1,0 +1,6 @@
+{
+  "name": "Aplikasi Keuangan RT",
+  "description": "Sistem pengelolaan keuangan RT terpadu dengan fitur iuran warga, buku kas otomatis, dan pengumuman publik.",
+  "requestFramePermissions": [],
+  "majorCapabilities": []
+}

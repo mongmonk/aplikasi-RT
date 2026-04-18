@@ -1,0 +1,92 @@
+{
+  "entities": {
+    "Announcement": {
+      "title": "Pengumuman",
+      "description": "Informasi atau pengumuman RT",
+      "type": "object",
+      "properties": {
+        "title": { "type": "string", "description": "Judul pengumuman" },
+        "content": { "type": "string", "description": "Isi detail pengumuman" },
+        "date": { "type": "string", "format": "date-time", "description": "Tanggal publikasi" },
+        "author": { "type": "string", "description": "Nama penulis/pengurus" }
+      },
+      "required": ["title", "content", "date", "author"]
+    },
+    "Resident": {
+      "title": "Warga",
+      "description": "Data warga RT",
+      "type": "object",
+      "properties": {
+        "name": { "type": "string", "description": "Nama lengkap warga" },
+        "block": { "type": "string", "description": "Blok rumah" },
+        "number": { "type": "string", "description": "Nomor rumah" }
+      },
+      "required": ["name"]
+    },
+    "Payment": {
+      "title": "Iuran",
+      "description": "Pencatatan pembayaran iuran bulanan",
+      "type": "object",
+      "properties": {
+        "residentId": { "type": "string", "description": "ID Warga" },
+        "residentName": { "type": "string", "description": "Nama Warga (denormalized for matrix)" },
+        "year": { "type": "integer", "description": "Tahun iuran" },
+        "months": { "type": "array", "description": "Bulan yang dibayar (1-12)" },
+        "amount": { "type": "integer", "description": "Total nominal yang dibayar" },
+        "paymentDate": { "type": "string", "format": "date", "description": "Tanggal pembayaran aktual" },
+        "createdAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["residentId", "year", "months", "amount", "paymentDate"]
+    },
+    "CashEntry": {
+      "title": "Buku Kas",
+      "description": "Pencatatan pemasukan dan pengeluaran",
+      "type": "object",
+      "properties": {
+        "description": { "type": "string", "description": "Uraian transaksi" },
+        "date": { "type": "string", "format": "date", "description": "Tanggal transaksi" },
+        "type": { "type": "string", "enum": ["income", "expense"], "description": "Jenis transaksi" },
+        "amount": { "type": "integer", "description": "Nominal transaksi" },
+        "category": { "type": "string", "description": "Kategori (e.g., Iuran, Sampah, Sosial)" },
+        "paymentId": { "type": "string", "description": "ID referensi jika dari iuran" }
+      },
+      "required": ["description", "date", "type", "amount"]
+    },
+    "User": {
+      "title": "Admin User",
+      "description": "Profil pengelola dengan status aktivasi",
+      "type": "object",
+      "properties": {
+        "uid": { "type": "string" },
+        "email": { "type": "string" },
+        "displayName": { "type": "string" },
+        "photoURL": { "type": "string" },
+        "isActive": { "type": "boolean" },
+        "createdAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["uid", "email", "isActive"]
+    }
+  },
+  "firestore": {
+    "/users/{uid}": {
+      "schema": "User",
+      "description": "Daftar admin dan pendaftar"
+    },
+    "/announcements/{announcementId}": {
+      "schema": "Announcement",
+      "description": "Daftar pengumuman publik"
+    },
+    "/residents/{residentId}": {
+      "schema": "Resident",
+      "description": "Master data warga"
+    },
+    "/payments/{paymentId}": {
+      "schema": "Payment",
+      "description": "Log pembayaran iuran"
+    },
+    "/cash_book/{entryId}": {
+      "schema": "CashEntry",
+      "description": "Log buku kas (Pemasukan & Pengeluaran)"
+    }
+  }
+}

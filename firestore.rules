@@ -1,0 +1,76 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    // Helper functions
+    function isSignedIn() {
+      return request.auth != null;
+    }
+
+    function isActiveAdmin() {
+      return isSignedIn() && 
+        exists(/databases/$(database)/documents/users/$(request.auth.uid)) && 
+        get(/databases/$(database)/documents/users/$(request.auth.uid)).data.isActive == true;
+    }
+
+    function isValidString(val, maxLen) {
+      return val is string && val.size() <= maxLen;
+    }
+
+    function isValidAmount(val) {
+      return val is int && val >= 0;
+    }
+
+    // Default deny
+    match /{document=**} {
+      allow read, write: if false;
+    }
+
+    // Connection Test
+    match /test/connection {
+      allow read: if true;
+    }
+
+    // Users Collection
+    match /users/{id} {
+      allow read: if isSignedIn();
+      allow create: if isSignedIn() && request.auth.uid == id;
+      allow update: if isActiveAdmin();
+    }
+
+    // Announcements: Public Read
+    match /announcements/{id} {
+      allow read: if true;
+      allow create, update: if isActiveAdmin() && 
+        isValidString(request.resource.data.title, 200) &&
+        isValidString(request.resource.data.content, 5000) &&
+        isValidString(request.resource.data.author, 100);
+      allow delete: if isActiveAdmin();
+    }
+
+    // Residents: Public Read
+    match /residents/{id} {
+      allow read: if true;
+      allow create, update: if isActiveAdmin() &&
+        isValidString(request.resource.data.name, 100);
+      allow delete: if isActiveAdmin();
+    }
+
+    // Payments: Public Read
+    match /payments/{id} {
+      allow read: if true;
+      allow create: if isActiveAdmin() &&
+        isValidAmount(request.resource.data.amount) &&
+        request.resource.data.months.size() > 0;
+      allow update, delete: if isActiveAdmin();
+    }
+
+    // Cash Book: Public Read
+    match /cash_book/{id} {
+      allow read: if true;
+      allow create: if isActiveAdmin() &&
+        isValidAmount(request.resource.data.amount) &&
+        (request.resource.data.type == 'income' || request.resource.data.type == 'expense');
+      allow update, delete: if isActiveAdmin();
+    }
+  }
+}
