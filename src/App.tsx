@@ -47,26 +47,9 @@ import {
   signOut,
   User 
 } from 'firebase/auth';
-import { 
-  collection, 
-  query, 
-  onSnapshot, 
-  addDoc, 
-  deleteDoc, 
-  doc, 
-  where, 
-  orderBy, 
-  setDoc,
-  serverTimestamp,
-  writeBatch,
-  getDocs,
-  limit,
-  updateDoc,
-  getDoc,
-  getDocFromServer
-} from 'firebase/firestore';
 
-import { auth, db, googleProvider } from '@/lib/firebase';
+import { auth, googleProvider } from '@/lib/firebase';
+import { db } from '@/lib/firebase';
 import { Announcement, Resident, Payment, CashEntry, AppUser, AppSettings } from '@/lib/types';
 
 // UI Components
@@ -121,121 +104,110 @@ export default function App() {
   const [settings, setSettings] = useState<AppSettings | null>(null);
   const [selectedYear, setSelectedYear] = useState(new Date().getFullYear());
 
-  // Auth & Sync AppUser
+  // Update appUser whenever data refreshes
   useEffect(() => {
-    let unsubSnapshot: (() => void) | null = null;
+    if (user && allUsers.length > 0) {
+      const me = allUsers.find(u => u.uid === user.uid);
+      if (me) {
+        setAppUser(me);
+      } else if (user.email === 'backupcemonggaul@gmail.com') {
+        // Fallback for designated admin if not yet in allUsers list
+        setAppUser({
+          uid: user.uid,
+          email: user.email,
+          displayName: user.displayName || 'Admin',
+          photoURL: user.photoURL || '',
+          isActive: true,
+          createdAt: new Date().toISOString()
+        });
+      }
+    }
+  }, [user, allUsers]);
 
+  // Auth Listener
+  useEffect(() => {
     const unsubAuth = onAuthStateChanged(auth, async (u) => {
       setUser(u);
-      
-      // Cleanup previous snapshot listener if it exists
-      if (unsubSnapshot) {
-        unsubSnapshot();
-        unsubSnapshot = null;
-      }
-
       if (u) {
-        const userDocRef = doc(db, 'users', u.uid);
-        const userDoc = await getDoc(userDocRef);
+        // Sync user to Turso
+        const userData = {
+          uid: u.uid,
+          email: u.email,
+          displayName: u.displayName,
+          photoURL: u.photoURL
+        };
         
-        if (!userDoc.exists()) {
-          const usersSnap = await getDocs(query(collection(db, 'users'), limit(1)));
-          const isActive = usersSnap.empty; 
-          
-          const newUser: AppUser = {
-            uid: u.uid,
-            email: u.email || '',
-            displayName: u.displayName || 'Warga RT',
-            photoURL: u.photoURL || '',
-            isActive,
-            createdAt: new Date().toISOString()
-          };
-          await setDoc(userDocRef, newUser);
-          setAppUser(newUser);
-        }
-
-        // Start listening to the user document for real-time status updates
-        unsubSnapshot = onSnapshot(userDocRef, (snap) => {
-          if (snap.exists()) {
-            setAppUser(snap.data() as AppUser);
+        try {
+          const res = await fetch('/api/users/sync', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(userData)
+          });
+          if (res.ok) {
+            // Get all persistent users to check status
+            const usersRes = await fetch('/api/users');
+            const allUsersArr: AppUser[] = await usersRes.json();
+            const me = allUsersArr.find(usr => usr.uid === u.uid);
+            if (me) setAppUser(me);
           }
-        });
+        } catch (error) {
+          console.error("User sync error:", error);
+        }
       } else {
         setAppUser(null);
       }
     });
 
-    return () => {
-      unsubAuth();
-      if (unsubSnapshot) unsubSnapshot();
-    };
+    return () => unsubAuth();
   }, []);
 
-  // Sync All Users (Admin only)
-  useEffect(() => {
-    if (appUser?.isActive) {
-      const q = query(collection(db, 'users'), orderBy('createdAt', 'desc'));
-      return onSnapshot(q, (snap) => {
-        setAllUsers(snap.docs.map(doc => doc.data() as AppUser));
-      });
+  // Fetch Data periodically (since we lost real-time onSnapshot)
+  const fetchData = async () => {
+    try {
+      const urls = [
+        '/api/residents',
+        '/api/payments',
+        '/api/cash-book',
+        '/api/announcements',
+        '/api/settings',
+        '/api/users'
+      ];
+      
+      const responses = await Promise.all(urls.map(url => fetch(url)));
+      
+      if (responses[0].ok) {
+        const data = await responses[0].json();
+        if (Array.isArray(data)) setResidents(data);
+      }
+      if (responses[1].ok) {
+        const data = await responses[1].json();
+        if (Array.isArray(data)) setPayments(data);
+      }
+      if (responses[2].ok) {
+        const data = await responses[2].json();
+        if (Array.isArray(data)) setCashEntries(data);
+      }
+      if (responses[3].ok) {
+        const data = await responses[3].json();
+        if (Array.isArray(data)) setAnnouncements(data);
+      }
+      if (responses[4].ok) {
+        const data = await responses[4].json();
+        if (data && !data.error) setSettings(data);
+      }
+      if (responses[5].ok) {
+        const data = await responses[5].json();
+        if (Array.isArray(data)) setAllUsers(data);
+      }
+    } catch (error) {
+      console.error("Fetch error:", error);
     }
-  }, [appUser?.isActive]);
+  };
 
-  // Sync Data
   useEffect(() => {
-    // Standard connection test
-    const testConnection = async () => {
-      try {
-        await getDocFromServer(doc(db, 'test', 'connection'));
-        console.log("CONNECTED");
-      } catch (error) {
-        console.error("Firebase Connection Error:", error);
-      }
-    };
-    testConnection();
-
-    const qA = query(collection(db, 'announcements'), orderBy('date', 'desc'));
-    const unsubA = onSnapshot(qA, (snap) => {
-      setAnnouncements(snap.docs.map(doc => ({ id: doc.id, ...doc.data() } as Announcement)));
-    });
-
-    const qR = query(collection(db, 'residents'), orderBy('name', 'asc'));
-    const unsubR = onSnapshot(qR, (snap) => {
-      setResidents(snap.docs.map(doc => ({ id: doc.id, ...doc.data() } as Resident)));
-    });
-
-    const qP = query(collection(db, 'payments'), orderBy('paymentDate', 'desc'));
-    const unsubP = onSnapshot(qP, (snap) => {
-      setPayments(snap.docs.map(doc => ({ id: doc.id, ...doc.data() } as Payment)));
-    });
-
-    const qC = query(collection(db, 'cash_book'), orderBy('date', 'desc'));
-    const unsubC = onSnapshot(qC, (snap) => {
-      setCashEntries(snap.docs.map(doc => ({ id: doc.id, ...doc.data() } as CashEntry)));
-    });
-
-    const unsubS = onSnapshot(doc(db, 'app_settings', 'global'), (doc) => {
-      if (doc.exists()) {
-        setSettings(doc.data() as AppSettings);
-      } else {
-        // Default settings
-        setSettings({
-          rtNumber: '00',
-          village: 'Desa Dasar',
-          district: 'Kecamatan Dasar',
-          regency: 'Kota Dasar',
-          defaultIuran: 15000
-        });
-      }
-    });
-
-    return () => {
-      unsubA();
-      unsubR();
-      unsubP();
-      unsubC();
-      unsubS();
-    };
+    fetchData();
+    const interval = setInterval(fetchData, 5000); // Polling every 5s for better responsiveness
+    return () => clearInterval(interval);
   }, []);
 
   const handleLogout = () => signOut(auth);
@@ -382,8 +354,10 @@ export default function App() {
                   ) : (
                     <span className="text-[9px] bg-slate-600 px-1.5 rounded ml-2">PENDING</span>
                   )
-                ) : (
+                ) : user ? (
                   <span className="text-[9px] animate-pulse bg-slate-800 px-1.5 rounded ml-2 italic">VERIFYING...</span>
+                ) : (
+                  <span className="text-[9px] opacity-40 italic ml-2">GUEST</span>
                 )}
               </>
             ) : (
@@ -414,7 +388,7 @@ export default function App() {
                  onChange={(e) => setSelectedYear(parseInt(e.target.value) || new Date().getFullYear())}
                />
             </div>
-            {user && appUser?.isActive && <AddPaymentGlobal entries={payments} residents={residents} />}
+            {user && appUser?.isActive && <AddPaymentGlobal entries={payments} residents={residents} onSync={fetchData} />}
           </div>
         </header>
 
@@ -433,33 +407,33 @@ export default function App() {
           {activeTab === 'summary' && (
             <div className="grid grid-cols-1 lg:grid-cols-[1fr_350px] gap-6 h-full">
               <Panel title="Matriks Pembayaran Iuran Warga" subtitle={`Default: ${CURRENCY_FORMATTER.format(settings?.defaultIuran || 15000)} / Bln`}>
-                 <IuranTable residents={residents} payments={payments} year={selectedYear} isAdmin={!!appUser?.isActive} />
+                 <IuranTable residents={residents} payments={payments} year={selectedYear} isAdmin={!!appUser?.isActive} onSync={fetchData} />
               </Panel>
-              <Panel title="Informasi & Pengumuman" action={user && appUser?.isActive && <AddAnnouncementDialog />}>
-                <AnnouncementList announcements={announcements} isAdmin={!!appUser?.isActive} />
+              <Panel title="Informasi & Pengumuman" action={user && appUser?.isActive && <AddAnnouncementDialog onSync={fetchData} />}>
+                <AnnouncementList announcements={announcements} isAdmin={!!appUser?.isActive} onSync={fetchData} />
               </Panel>
             </div>
           )}
 
           {activeTab === 'iuran' && (
              <Panel title="Data Lengkap Iuran" subtitle={`Tahun ${selectedYear}`}>
-               <IuranTable residents={residents} payments={payments} year={selectedYear} isAdmin={!!appUser?.isActive} />
+               <IuranTable residents={residents} payments={payments} year={selectedYear} isAdmin={!!appUser?.isActive} onSync={fetchData} />
              </Panel>
           )}
 
           {activeTab === 'cashbook' && (
-             <CashBookModule cashEntries={cashEntries} isAdmin={!!appUser?.isActive} />
+             <CashBookModule cashEntries={cashEntries} isAdmin={!!appUser?.isActive} onSync={fetchData} />
           )}
 
           {activeTab === 'residents' && (
-             <Panel title="Daftar Warga & Properti" action={user && appUser?.isActive && <AddResidentDialog />}>
-                <ResidentList residents={residents} isAdmin={!!appUser?.isActive} />
+             <Panel title="Daftar Warga & Properti" action={user && appUser?.isActive && <AddResidentDialog onSync={fetchData} />}>
+                <ResidentList residents={residents} isAdmin={!!appUser?.isActive} onSync={fetchData} />
              </Panel>
           )}
 
           {activeTab === 'admin' && appUser?.isActive && (
              <Panel title="Manajemen Pengurus & Sistem" subtitle="Kelola hak akses dan konfigurasi unit RT">
-                <AdminManagement users={allUsers} currentUserUid={user?.uid || ''} settings={settings} />
+                <AdminManagement users={allUsers} currentUserUid={user?.uid || ''} settings={settings} residents={residents} payments={payments} onSync={fetchData} />
              </Panel>
           )}
         </div>
@@ -510,7 +484,7 @@ function Panel({ title, subtitle, children, action }: { title: string, subtitle?
   );
 }
 
-function IuranTable({ residents, payments, year, isAdmin }: { residents: Resident[], payments: Payment[], year: number, isAdmin: boolean }) {
+function IuranTable({ residents, payments, year, isAdmin, onSync }: { residents: Resident[], payments: Payment[], year: number, isAdmin: boolean, onSync: () => void }) {
   const [editingPayment, setEditingPayment] = useState<Payment | null>(null);
   const [isDeleting, setIsDeleting] = useState(false);
   const [confirmDelete, setConfirmDelete] = useState(false);
@@ -670,13 +644,16 @@ function IuranTable({ residents, payments, year, isAdmin }: { residents: Residen
                           onClick={async () => {
                             setIsDeleting(true);
                             try {
-                              const batch = writeBatch(db);
-                              batch.delete(doc(db, 'payments', editingPayment.id));
-                              const cashQuery = await getDocs(query(collection(db, 'cash_book'), where('paymentId', '==', editingPayment.id)));
-                              cashQuery.forEach(d => batch.delete(d.ref));
-                              await batch.commit();
-                              setEditingPayment(null);
-                              setConfirmDelete(false);
+                              const res = await fetch('/api/payments/cleanup', {
+                                method: 'POST',
+                                headers: { 'Content-Type': 'application/json' },
+                                body: JSON.stringify({ paymentId: editingPayment.id })
+                              });
+                              if (res.ok) {
+                                onSync();
+                                setEditingPayment(null);
+                                setConfirmDelete(false);
+                              }
                             } catch (error) {
                               console.error("Delete error:", error);
                               alert("Gagal menghapus transaksi.");
@@ -708,11 +685,14 @@ function IuranTable({ residents, payments, year, isAdmin }: { residents: Residen
   );
 }
 
-function AnnouncementList({ announcements, isAdmin }: { announcements: Announcement[], isAdmin: boolean }) {
+function AnnouncementList({ announcements, isAdmin, onSync }: { announcements: Announcement[], isAdmin: boolean, onSync: () => void }) {
   const [deletingId, setDeletingId] = useState<string | null>(null);
 
   const handleDelete = async (id: string) => {
-    await deleteDoc(doc(db, 'announcements', id));
+    try {
+      const res = await fetch(`/api/announcements/${id}`, { method: 'DELETE' });
+      if (res.ok) onSync();
+    } catch (e) { console.error(e); }
     setDeletingId(null);
   };
 
@@ -746,11 +726,14 @@ function AnnouncementList({ announcements, isAdmin }: { announcements: Announcem
   );
 }
 
-function ResidentList({ residents, isAdmin }: { residents: Resident[], isAdmin: boolean }) {
+function ResidentList({ residents, isAdmin, onSync }: { residents: Resident[], isAdmin: boolean, onSync: () => void }) {
   const [deletingId, setDeletingId] = useState<string | null>(null);
 
   const handleDelete = async (id: string) => {
-    await deleteDoc(doc(db, 'residents', id));
+    try {
+      const res = await fetch(`/api/residents/${id}`, { method: 'DELETE' });
+      if (res.ok) onSync();
+    } catch (e) { console.error(e); }
     setDeletingId(null);
   };
 
@@ -773,7 +756,7 @@ function ResidentList({ residents, isAdmin }: { residents: Resident[], isAdmin: 
                   <div className="flex items-center justify-end gap-1">
                     {isAdmin && (
                       <>
-                        <EditResidentDialog resident={r} />
+                        <EditResidentDialog resident={r} onSync={onSync} />
                         {deletingId === r.id ? (
                           <div className="flex items-center gap-1 animate-in fade-in slide-in-from-right-2 duration-200">
                              <button onClick={() => setDeletingId(null)} className="px-2 py-1 text-[9px] font-bold text-slate-400 hover:text-slate-600 transition-colors uppercase">Batal</button>
@@ -798,17 +781,32 @@ function ResidentList({ residents, isAdmin }: { residents: Resident[], isAdmin: 
 
 // --- UPDATED MODAL COMPONENTS ---
 
-function AddAnnouncementDialog() {
+function AddAnnouncementDialog({ onSync }: { onSync: () => void }) {
   const [open, setOpen] = useState(false);
   const [title, setTitle] = useState('');
   const [content, setContent] = useState('');
 
   const handleAdd = async () => {
     if (!title || !content || !auth.currentUser) return;
-    await addDoc(collection(db, 'announcements'), {
-      title, content, date: new Date().toISOString(), author: auth.currentUser.email
-    });
-    setOpen(false); setTitle(''); setContent('');
+    try {
+      const res = await fetch('/api/announcements', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          id: crypto.randomUUID(),
+          title, 
+          content, 
+          date: new Date().toISOString(), 
+          author: auth.currentUser.email
+        })
+      });
+      if (res.ok) {
+        onSync();
+        setOpen(false); setTitle(''); setContent('');
+      }
+    } catch (e) {
+      alert("Gagal mengirim pengumuman");
+    }
   };
 
   return (
@@ -831,7 +829,7 @@ function AddAnnouncementDialog() {
   );
 }
 
-function AddPaymentGlobal({ entries, residents }: { entries: Payment[], residents: Resident[] }) {
+function AddPaymentGlobal({ entries, residents, onSync }: { entries: Payment[], residents: Resident[], onSync: () => void }) {
   const [open, setOpen] = useState(false);
   return (
     <Dialog open={open} onOpenChange={setOpen}>
@@ -839,13 +837,13 @@ function AddPaymentGlobal({ entries, residents }: { entries: Payment[], resident
         <Plus className="w-3.5 h-3.5 mr-1.5" /> INPUT IURAN BARU
       </DialogTrigger>
       <DialogContent className="sm:max-w-[550px]">
-        <PayIuranForm residents={residents} currentPayments={entries} onSuccess={() => setOpen(false)} />
+        <PayIuranForm residents={residents} currentPayments={entries} onSync={onSync} onSuccess={() => setOpen(false)} />
       </DialogContent>
     </Dialog>
   );
 }
 
-function PayIuranForm({ residents, currentPayments, onSuccess }: { residents: Resident[], currentPayments: Payment[], onSuccess: () => void }) {
+function PayIuranForm({ residents, currentPayments, onSuccess, onSync }: { residents: Resident[], currentPayments: Payment[], onSuccess: () => void, onSync: () => void }) {
   const [residentId, setResidentId] = useState('');
   const [searchQuery, setSearchQuery] = useState('');
   const [isSearchOpen, setIsSearchOpen] = useState(false);
@@ -885,40 +883,40 @@ function PayIuranForm({ residents, currentPayments, onSuccess }: { residents: Re
     if (!residentId || selectedMonths.length === 0 || !amount) return;
 
     try {
-      const batch = writeBatch(db);
-      
-      // 1. Create Payment
-      const paymentRef = doc(collection(db, 'payments'));
-      const paymentData = {
-        residentId,
-        residentName: resident?.name || '',
-        year: parseInt(year),
-        months: selectedMonths,
-        amount: parseInt(amount),
-        paymentDate: format(paymentDate, 'yyyy-MM-dd'),
-        createdAt: new Date().toISOString()
-      };
-      batch.set(paymentRef, paymentData);
+      const pId = crypto.randomUUID();
+      const pDateStr = format(paymentDate, 'yyyy-MM-dd');
+      const monthYearLabel = format(paymentDate, 'MMMM yyyy', { locale: localeID }).toUpperCase();
 
-      // 2. Create Cash Entry (Unified logic)
-      // Logic: Aggregate to the month of PAYMENT DATE
-      const pDate = paymentDate;
-      const monthYearLabel = format(pDate, 'MMMM yyyy', { locale: localeID }).toUpperCase();
-      const currentMonth = pDate.getMonth() + 1;
-      const currentYear = pDate.getFullYear();
-
-      const cashEntryRef = doc(collection(db, 'cash_book'));
-      batch.set(cashEntryRef, {
-        description: `PEROLEHAN IURAN BULAN ${monthYearLabel} (${resident?.name})`,
-        date: format(pDate, 'yyyy-MM-dd'),
-        type: 'income',
-        amount: parseInt(amount),
-        category: 'Iuran',
-        paymentId: paymentRef.id
+      const res = await fetch('/api/payments/record', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          payment: {
+            id: pId,
+            residentId,
+            residentName: resident?.name || '',
+            year: parseInt(year),
+            months: selectedMonths,
+            amount: parseInt(amount),
+            paymentDate: pDateStr,
+            createdAt: new Date().toISOString()
+          },
+          cashEntry: {
+            id: crypto.randomUUID(),
+            description: `PEROLEHAN IURAN BULAN ${monthYearLabel} (${resident?.name})`,
+            date: pDateStr,
+            type: 'income',
+            amount: parseInt(amount),
+            category: 'Iuran',
+            createdAt: new Date().toISOString()
+          }
+        })
       });
 
-      await batch.commit();
-      onSuccess();
+      if (res.ok) {
+        onSync();
+        onSuccess();
+      }
     } catch (e) {
       console.error(e);
       alert('Gagal menyimpan data.');
@@ -1054,7 +1052,7 @@ function PayIuranForm({ residents, currentPayments, onSuccess }: { residents: Re
   );
 }
 
-function CashBookModule({ cashEntries, isAdmin }: { cashEntries: CashEntry[], isAdmin: boolean }) {
+function CashBookModule({ cashEntries, isAdmin, onSync }: { cashEntries: CashEntry[], isAdmin: boolean, onSync: () => void }) {
   const [filterMonth, setFilterMonth] = useState((new Date().getMonth() + 1).toString());
   const [filterYear, setFilterYear] = useState(new Date().getFullYear().toString());
   const [openAdd, setOpenAdd] = useState(false);
@@ -1108,21 +1106,33 @@ function CashBookModule({ cashEntries, isAdmin }: { cashEntries: CashEntry[], is
 
   const handleAddManual = async () => {
     if (!newDesc || !newAmount) return;
-    await addDoc(collection(db, 'cash_book'), {
-      description: newDesc,
-      date: format(newDate, 'yyyy-MM-dd'),
-      type: newType,
-      amount: parseInt(newAmount),
-      category: 'Lain-lain',
-      createdAt: new Date().toISOString()
-    });
-    setOpenAdd(false);
-    setNewDesc('');
-    setNewAmount('');
+    try {
+      const res = await fetch('/api/cash-book', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          id: crypto.randomUUID(),
+          description: newDesc,
+          date: format(newDate, 'yyyy-MM-dd'),
+          type: newType,
+          amount: parseInt(newAmount),
+          category: 'Lain-lain'
+        })
+      });
+      if (res.ok) {
+        onSync();
+        setOpenAdd(false);
+        setNewDesc('');
+        setNewAmount('');
+      }
+    } catch (e) { alert("Gagal menyimpan"); }
   };
 
   const handleDelete = async (id: string) => {
-    await deleteDoc(doc(db, 'cash_book', id));
+    try {
+      const res = await fetch(`/api/cash-book/${id}`, { method: 'DELETE' });
+      if (res.ok) onSync();
+    } catch (e) { console.error(e); }
     setDeletingId(null);
   };
 
@@ -1198,13 +1208,19 @@ function CashBookModule({ cashEntries, isAdmin }: { cashEntries: CashEntry[], is
               <DialogFooter>
                 <Button 
                   onClick={async () => {
-                    await updateDoc(doc(db, 'cash_book', editingEntry.id), {
-                      description: editingEntry.description,
-                      date: editingEntry.date,
-                      type: editingEntry.type,
-                      amount: editingEntry.amount,
-                      updatedAt: new Date().toISOString()
-                    });
+                    try {
+                      const res = await fetch(`/api/cash-book/${editingEntry.id}`, {
+                        method: 'PUT',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({
+                          description: editingEntry.description,
+                          date: editingEntry.date,
+                          type: editingEntry.type,
+                          amount: editingEntry.amount
+                        })
+                      });
+                      if (res.ok) onSync();
+                    } catch (e) { console.error(e); }
                     setEditingEntry(null);
                   }} 
                   className="w-full"
@@ -1439,14 +1455,18 @@ function CashBookModule({ cashEntries, isAdmin }: { cashEntries: CashEntry[], is
   );
 }
 
-function AdminManagement({ users, currentUserUid, settings }: { users: AppUser[], currentUserUid: string, settings: AppSettings | null }) {
+function AdminManagement({ users, currentUserUid, settings, residents, payments, onSync }: { users: AppUser[], currentUserUid: string, settings: AppSettings | null, residents: Resident[], payments: Payment[], onSync: () => void }) {
   const toggleStatus = async (user: AppUser) => {
     if (user.uid === currentUserUid) {
       alert("Anda tidak bisa menonaktifkan akun sendiri.");
       return;
     }
-    const userRef = doc(db, 'users', user.uid);
-    await updateDoc(userRef, { isActive: !user.isActive });
+    const res = await fetch(`/api/users/${user.uid}/activate`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ isActive: !user.isActive })
+    });
+    if (res.ok) onSync();
   };
 
   return (
@@ -1503,10 +1523,10 @@ function AdminManagement({ users, currentUserUid, settings }: { users: AppUser[]
           </div>
         </TabsContent>
         <TabsContent value="settings">
-           <SettingsForm settings={settings} />
+           <SettingsForm settings={settings} onSync={onSync} />
         </TabsContent>
         <TabsContent value="import">
-           <LegacyImporter settings={settings} />
+           <LegacyImporter settings={settings} residents={residents} payments={payments} onSync={onSync} />
         </TabsContent>
       </Tabs>
     </div>
@@ -1584,7 +1604,7 @@ function AuthDialog() {
   );
 }
 
-function AddResidentDialog() {
+function AddResidentDialog({ onSync }: { onSync: () => void }) {
   const [open, setOpen] = useState(false);
   const [name, setName] = useState('');
   const [block, setBlock] = useState('');
@@ -1592,9 +1612,23 @@ function AddResidentDialog() {
 
   const handleAdd = async () => {
     if (!name) return;
-    await addDoc(collection(db, 'residents'), { name, block, number: (number || '-') });
-    setOpen(false);
-    setName(''); setBlock(''); setNumber('');
+    try {
+      const res = await fetch('/api/residents', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          id: crypto.randomUUID(),
+          name, 
+          block, 
+          number: (number || '-')
+        })
+      });
+      if (res.ok) {
+        onSync();
+        setOpen(false);
+        setName(''); setBlock(''); setNumber('');
+      }
+    } catch (e) { alert("Gagal menambah warga"); }
   };
 
   return (
@@ -1616,7 +1650,7 @@ function AddResidentDialog() {
   );
 }
 
-function EditResidentDialog({ resident }: { resident: Resident }) {
+function EditResidentDialog({ resident, onSync }: { resident: Resident, onSync: () => void }) {
   const [open, setOpen] = useState(false);
   const [name, setName] = useState(resident.name);
   const [block, setBlock] = useState(resident.block || '');
@@ -1624,7 +1658,14 @@ function EditResidentDialog({ resident }: { resident: Resident }) {
 
   const handleEdit = async () => {
     if (!name) return;
-    await updateDoc(doc(db, 'residents', resident.id), { name, block, number: (number || '-') });
+    try {
+      const res = await fetch(`/api/residents/${resident.id}`, {
+        method: 'POST', // Use POST for update if PUT not specifically defined for residents, or we can use PUT
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ name, block, number: (number || '-') })
+      });
+      if (res.ok) onSync();
+    } catch (e) { console.error(e); }
     setOpen(false);
   };
 
@@ -1764,7 +1805,7 @@ function VoiceInputButton({ onParsed }: { onParsed: (data: any) => void }) {
   );
 }
 
-function SettingsForm({ settings }: { settings: AppSettings | null }) {
+function SettingsForm({ settings, onSync }: { settings: AppSettings | null, onSync: () => void }) {
   const [loading, setLoading] = useState(false);
   const [rtNumber, setRtNumber] = useState(settings?.rtNumber || '');
   const [dusun, setDusun] = useState(settings?.dusun || '');
@@ -1797,16 +1838,23 @@ function SettingsForm({ settings }: { settings: AppSettings | null }) {
 
     setLoading(true);
     try {
-      await setDoc(doc(db, 'app_settings', 'global'), {
-        rtNumber,
-        dusun,
-        village,
-        district,
-        regency,
-        defaultIuran: parseInt(defaultIuran),
-        logoUrl
+      const res = await fetch('/api/settings', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          rtNumber,
+          dusun,
+          village,
+          district,
+          regency,
+          defaultIuran: parseInt(defaultIuran),
+          logoUrl
+        })
       });
-      alert("Pengaturan berhasil disimpan!");
+      if (res.ok) {
+        onSync();
+        alert("Pengaturan berhasil disimpan!");
+      }
     } catch (error) {
       console.error(error);
       alert("Gagal menyimpan pengaturan.");
@@ -1882,7 +1930,7 @@ function SettingsForm({ settings }: { settings: AppSettings | null }) {
   );
 }
 
-function LegacyImporter({ settings }: { settings: AppSettings | null }) {
+function LegacyImporter({ settings, residents, payments, onSync }: { settings: AppSettings | null, residents: Resident[], payments: Payment[], onSync: () => void }) {
   const [csvText, setCsvText] = useState('');
   const [loading, setLoading] = useState(false);
   const [logs, setLogs] = useState<string[]>([]);
@@ -1898,9 +1946,6 @@ function LegacyImporter({ settings }: { settings: AppSettings | null }) {
       const headerLine = allLines[0];
       const dataLines = allLines.slice(1);
       
-      const residentsRef = collection(db, 'residents');
-      const paymentsRef = collection(db, 'payments');
-
       const detectDelimiter = (text: string) => {
         if (text.includes('\t')) return '\t';
         if (text.includes(';')) return ';';
@@ -1945,10 +1990,14 @@ function LegacyImporter({ settings }: { settings: AppSettings | null }) {
 
       addLog(`Menemukan ${monthMap.length} kolom bulan.`);
 
-      // Get existing residents
-      const existingResSnap = await getDocs(residentsRef);
+      // Store results for bulk insert
+      const importResidents: any[] = [];
+      const importPayments: any[] = [];
+      const importCash: any[] = [];
+
+      // Use current residents state instead of Firebase
       const residentsMap = new Map();
-      existingResSnap.docs.forEach(doc => residentsMap.set(doc.data().name.toLowerCase().trim(), doc.id));
+      residents.forEach(res => residentsMap.set(res.name.toLowerCase().trim(), res.id));
 
       for (let i = 0; i < dataLines.length; i++) {
         const line = dataLines[i].trim();
@@ -1963,18 +2012,23 @@ function LegacyImporter({ settings }: { settings: AppSettings | null }) {
         const name = nameRaw.replace(/^["']|["']$/g, '');
         addLog(`Memproses: ${name}...`);
 
-        let residentId = residentsMap.get(name.toLowerCase().trim());
+        const residentKey = name.toLowerCase().trim();
+        let residentId = residentsMap.get(residentKey);
+        
         if (!residentId) {
-          const resDoc = await addDoc(residentsRef, { name, block: '-', number: '-' });
-          residentId = resDoc.id;
-          residentsMap.set(name.toLowerCase().trim(), residentId);
+          residentId = crypto.randomUUID();
+          importResidents.push({
+            id: residentId,
+            name,
+            block: '-',
+            number: '-',
+            createdAt: new Date().toISOString()
+          });
+          residentsMap.set(residentKey, residentId);
           addLog(`Warga baru: ${name}`);
         }
 
         for (const mi of monthMap) {
-          // Since we filtered headers, mi.idx refers to the index in headerParts.
-          // But 'parts' might have different length if using regex split.
-          // Let's rely on the original index mapping more carefully.
           if (mi.idx >= parts.length) continue;
           const val = parts[mi.idx]?.toLowerCase();
           if (val && val !== '') {
@@ -1987,36 +2041,71 @@ function LegacyImporter({ settings }: { settings: AppSettings | null }) {
 
             if (amount > 0) {
               const pDate = new Date(mi.year, mi.month - 1, 1);
-              const pRef = await addDoc(paymentsRef, {
-                residentId,
-                residentName: name,
-                year: mi.year,
-                months: [mi.month],
-                amount,
-                paymentDate: format(pDate, 'yyyy-MM-dd'),
-                createdAt: new Date().toISOString()
-              });
+              const pDateStr = format(pDate, 'yyyy-MM-dd');
+              
+              // Local duplicate check
+              const isDuplicate = payments.some(p => 
+                p.residentId === residentId && 
+                p.year === mi.year && 
+                p.months.includes(mi.month)
+              );
 
-              // Sync with Cash Book
-              const monthYearLabel = format(pDate, 'MMMM yyyy', { locale: localeID }).toUpperCase();
-              await addDoc(collection(db, 'cash_book'), {
-                description: `PEROLEHAN IURAN BULAN ${monthYearLabel} (${name})`,
-                date: format(pDate, 'yyyy-MM-dd'),
-                type: 'income',
-                amount: amount,
-                category: 'Iuran',
-                paymentId: pRef.id,
-                createdAt: new Date().toISOString()
-              });
+              if (!isDuplicate) {
+                const pId = crypto.randomUUID();
+                importPayments.push({
+                  id: pId,
+                  residentId,
+                  residentName: name,
+                  year: mi.year,
+                  months: [mi.month],
+                  amount,
+                  paymentDate: pDateStr,
+                  createdAt: new Date().toISOString()
+                });
+
+                // Check for manual cash entries linked to this? No, we skip if cash entry exists too
+                const monthYearLabel = format(pDate, 'MMMM yyyy', { locale: localeID }).toUpperCase();
+                importCash.push({
+                  id: crypto.randomUUID(),
+                  description: `PEROLEHAN IURAN BULAN ${monthYearLabel} (${name})`,
+                  date: pDateStr,
+                  type: 'income',
+                  amount,
+                  category: 'Iuran',
+                  paymentId: pId,
+                  createdAt: new Date().toISOString()
+                });
+                addLog(`Siap: ${name} - ${mi.month}/${mi.year}`);
+              } else {
+                // If payment exists, maybe check if cash entry exists?
+                // For simplicity, if payment exists we skip to avoid balance messy
+              }
             }
           }
         }
       }
-      alert("Impor Selesai!");
-      window.location.reload();
+
+      const res = await fetch('/api/import/bulk', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          residents: importResidents,
+          payments: importPayments,
+          cashEntries: importCash
+        })
+      });
+
+      if (res.ok) {
+        addLog("Data terkirim ke server!");
+        alert("Impor Selesai!");
+        onSync();
+        setCsvText('');
+      } else {
+        throw new Error("Gagal mengirim data ke server");
+      }
     } catch (error: any) {
       console.error(error);
-      alert(error.message || "Terjadi kesalahan saat impor. Cek format data Anda.");
+      alert(error.message || "Terjadi kesalahan saat impor.");
     } finally {
       setLoading(false);
     }
