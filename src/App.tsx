@@ -28,13 +28,15 @@ import {
   ChevronsUpDown,
   Building,
   MapPin,
-  Map,
+  Map as MapIcon,
   Settings,
   Upload,
   Image as ImageIcon,
   Mic,
   MicOff,
-  Loader2
+  Loader2,
+  FileUp,
+  AlertCircle
 } from 'lucide-react';
 import { format, startOfMonth, endOfMonth, isWithinInterval, parseISO } from 'date-fns';
 import { id as localeID } from 'date-fns/locale';
@@ -403,16 +405,15 @@ export default function App() {
         <header className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4 shrink-0">
           <h1 className="text-lg md:text-xl font-extrabold tracking-tight">Dashboard Keuangan Tahunan</h1>
           <div className="flex items-center gap-2 w-full sm:w-auto">
-            <Select value={selectedYear.toString()} onValueChange={(v) => setSelectedYear(parseInt(v))}>
-              <SelectTrigger className="h-8 w-[120px] bg-white border-slate-200 text-xs font-bold">
-                <SelectValue />
-              </SelectTrigger>
-              <SelectContent>
-                {[2024, 2025, 2026, 2027].map(y => (
-                  <SelectItem key={y} value={y.toString()}>Tahun {y}</SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
+            <div className="flex items-center bg-white border border-slate-200 rounded-md px-2 h-8">
+               <span className="text-[10px] font-black text-slate-400 mr-2 uppercase tracking-tighter shrink-0">Tahun</span>
+               <input 
+                 type="number"
+                 className="w-14 bg-transparent outline-none text-xs font-bold text-slate-700"
+                 value={selectedYear}
+                 onChange={(e) => setSelectedYear(parseInt(e.target.value) || new Date().getFullYear())}
+               />
+            </div>
             {user && appUser?.isActive && <AddPaymentGlobal entries={payments} residents={residents} />}
           </div>
         </header>
@@ -708,8 +709,11 @@ function IuranTable({ residents, payments, year, isAdmin }: { residents: Residen
 }
 
 function AnnouncementList({ announcements, isAdmin }: { announcements: Announcement[], isAdmin: boolean }) {
+  const [deletingId, setDeletingId] = useState<string | null>(null);
+
   const handleDelete = async (id: string) => {
-    if (confirm('Hapus pengumuman?')) await deleteDoc(doc(db, 'announcements', id));
+    await deleteDoc(doc(db, 'announcements', id));
+    setDeletingId(null);
   };
 
   return (
@@ -722,9 +726,18 @@ function AnnouncementList({ announcements, isAdmin }: { announcements: Announcem
           </div>
           <p className="text-[11px] text-slate-600 leading-relaxed font-medium line-clamp-3 overflow-hidden text-ellipsis whitespace-pre-wrap">{ann.content}</p>
           {isAdmin && (
-            <button onClick={() => handleDelete(ann.id)} className="absolute top-0 right-0 p-1 opacity-0 group-hover:opacity-100 transition-opacity text-slate-300 hover:text-red-500">
-               <Trash2 className="w-3.5 h-3.5" />
-            </button>
+            <div className="absolute top-0 right-0 p-1 opacity-0 group-hover:opacity-100 transition-opacity">
+               {deletingId === ann.id ? (
+                 <div className="flex items-center gap-1 bg-white shadow-sm border border-red-100 p-0.5 rounded-md animate-in fade-in zoom-in duration-200">
+                    <button onClick={() => setDeletingId(null)} className="px-1.5 py-0.5 text-[8px] font-bold text-slate-400">Batal</button>
+                    <button onClick={() => handleDelete(ann.id)} className="px-1.5 py-0.5 text-[8px] font-black bg-red-600 text-white rounded">Hapus</button>
+                 </div>
+               ) : (
+                 <button onClick={() => setDeletingId(ann.id)} className="text-slate-300 hover:text-red-500">
+                    <Trash2 className="w-3.5 h-3.5" />
+                 </button>
+               )}
+            </div>
           )}
         </div>
       ))}
@@ -1046,6 +1059,7 @@ function CashBookModule({ cashEntries, isAdmin }: { cashEntries: CashEntry[], is
   const [filterYear, setFilterYear] = useState(new Date().getFullYear().toString());
   const [openAdd, setOpenAdd] = useState(false);
   const [editingEntry, setEditingEntry] = useState<CashEntry | null>(null);
+  const [deletingId, setDeletingId] = useState<string | null>(null);
 
   const filteredData = useMemo(() => {
     const raw = cashEntries.filter(entry => {
@@ -1108,9 +1122,8 @@ function CashBookModule({ cashEntries, isAdmin }: { cashEntries: CashEntry[], is
   };
 
   const handleDelete = async (id: string) => {
-    if (confirm('Hapus transaksi ini?')) {
-      await deleteDoc(doc(db, 'cash_book', id));
-    }
+    await deleteDoc(doc(db, 'cash_book', id));
+    setDeletingId(null);
   };
 
   return (
@@ -1228,8 +1241,10 @@ function CashBookModule({ cashEntries, isAdmin }: { cashEntries: CashEntry[], is
             <div className="flex flex-wrap items-center gap-3">
               <div className="flex gap-2">
                 <Select value={filterMonth} onValueChange={setFilterMonth}>
-                  <SelectTrigger className="w-[140px] bg-slate-50 border-none font-bold">
-                    <SelectValue placeholder="Bulan" />
+                  <SelectTrigger className="w-[160px] bg-slate-50 border-none font-bold text-slate-700">
+                    <SelectValue>
+                      {MONTHS.find(m => m.id.toString() === filterMonth)?.name}
+                    </SelectValue>
                   </SelectTrigger>
                   <SelectContent>
                     {MONTHS.map(m => (
@@ -1237,12 +1252,15 @@ function CashBookModule({ cashEntries, isAdmin }: { cashEntries: CashEntry[], is
                     ))}
                   </SelectContent>
                 </Select>
-                <Input 
-                  type="number" 
-                  value={filterYear} 
-                  onChange={e => setFilterYear(e.target.value)} 
-                  className="w-[100px] bg-slate-50 border-none font-bold"
-                />
+                <div className="flex items-center bg-slate-50 rounded-md px-3 h-10">
+                  <span className="text-[10px] font-black text-slate-400 mr-2 uppercase tracking-tighter shrink-0">Tahun</span>
+                  <input 
+                    type="number" 
+                    className="w-16 bg-transparent outline-none font-bold text-slate-700"
+                    value={filterYear} 
+                    onChange={e => setFilterYear(e.target.value)} 
+                  />
+                </div>
               </div>
               {isAdmin && (
                 <Dialog open={openAdd} onOpenChange={setOpenAdd}>
@@ -1345,22 +1363,45 @@ function CashBookModule({ cashEntries, isAdmin }: { cashEntries: CashEntry[], is
                     <TableCell className="pr-8 py-4 text-right">
                        {isAdmin && !item.isGrouped && (
                          <div className="flex items-center justify-end gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
-                           <Button 
-                             variant="ghost" 
-                             size="icon" 
-                             onClick={() => setEditingEntry(item)} 
-                             className="text-slate-300 hover:text-blue-600"
-                           >
-                             <Edit className="w-4 h-4" />
-                           </Button>
-                           <Button 
-                             variant="ghost" 
-                             size="icon" 
-                             onClick={() => handleDelete(item.id)} 
-                             className="text-slate-300 hover:text-red-500"
-                           >
-                             <Trash2 className="w-4 h-4" />
-                           </Button>
+                            {deletingId === item.id ? (
+                              <div className="flex items-center gap-1 bg-white border border-red-100 p-1 rounded-lg animate-in fade-in slide-in-from-right-2 duration-200">
+                                <Button 
+                                  variant="ghost" 
+                                  size="sm" 
+                                  onClick={() => setDeletingId(null)} 
+                                  className="h-7 px-2 text-[10px] font-bold text-slate-400"
+                                >
+                                  Batal
+                                </Button>
+                                <Button 
+                                  variant="destructive" 
+                                  size="sm" 
+                                  onClick={() => handleDelete(item.id)} 
+                                  className="h-7 px-2 text-[10px] font-black uppercase"
+                                >
+                                  Hapus
+                                </Button>
+                              </div>
+                            ) : (
+                              <>
+                                <Button 
+                                  variant="ghost" 
+                                  size="icon" 
+                                  onClick={() => setEditingEntry(item)} 
+                                  className="text-slate-300 hover:text-blue-600"
+                                >
+                                  <Edit className="w-4 h-4" />
+                                </Button>
+                                <Button 
+                                  variant="ghost" 
+                                  size="icon" 
+                                  onClick={() => setDeletingId(item.id)} 
+                                  className="text-slate-300 hover:text-red-500"
+                                >
+                                  <Trash2 className="w-4 h-4" />
+                                </Button>
+                              </>
+                            )}
                          </div>
                        )}
                     </TableCell>
@@ -1414,6 +1455,7 @@ function AdminManagement({ users, currentUserUid, settings }: { users: AppUser[]
         <TabsList className="bg-slate-100 p-1 rounded-xl mx-6 mb-4">
           <TabsTrigger value="list" className="rounded-lg font-bold text-xs px-6">Daftar Admin</TabsTrigger>
           <TabsTrigger value="settings" className="rounded-lg font-bold text-xs px-6">Pengaturan RT</TabsTrigger>
+          <TabsTrigger value="import" className="rounded-lg font-bold text-xs px-6">Impor Data</TabsTrigger>
         </TabsList>
         <TabsContent value="list">
           <div className="overflow-x-auto">
@@ -1462,6 +1504,9 @@ function AdminManagement({ users, currentUserUid, settings }: { users: AppUser[]
         </TabsContent>
         <TabsContent value="settings">
            <SettingsForm settings={settings} />
+        </TabsContent>
+        <TabsContent value="import">
+           <LegacyImporter settings={settings} />
         </TabsContent>
       </Tabs>
     </div>
@@ -1833,6 +1878,204 @@ function SettingsForm({ settings }: { settings: AppSettings | null }) {
           {loading ? "Menyimpan..." : "Update Konfigurasi RT"}
         </Button>
       </div>
+    </div>
+  );
+}
+
+function LegacyImporter({ settings }: { settings: AppSettings | null }) {
+  const [csvText, setCsvText] = useState('');
+  const [loading, setLoading] = useState(false);
+  const [logs, setLogs] = useState<string[]>([]);
+
+  const handleImport = async () => {
+    if (!csvText.trim()) return;
+    setLoading(true);
+    setLogs([]);
+    const addLog = (msg: string) => setLogs(prev => [...prev.slice(-4), msg]);
+
+    try {
+      const allLines = csvText.trim().split('\n');
+      const headerLine = allLines[0];
+      const dataLines = allLines.slice(1);
+      
+      const residentsRef = collection(db, 'residents');
+      const paymentsRef = collection(db, 'payments');
+
+      const detectDelimiter = (text: string) => {
+        if (text.includes('\t')) return '\t';
+        if (text.includes(';')) return ';';
+        if (text.includes(',')) return ',';
+        return /\s{2,}/; // Multiple spaces
+      };
+
+      const delimiter = detectDelimiter(headerLine);
+
+      // Parse headers to build month mapping
+      const headerParts = headerLine.split(delimiter).map(p => p.trim()).filter(p => p !== '');
+      const monthMap: { idx: number; month: number; year: number }[] = [];
+      const monthNames = [
+        ['jan', 'januari'], ['feb', 'februari'], ['mar', 'maret'], ['apr', 'april'],
+        ['mei', 'may'], ['jun', 'juni'], ['jul', 'juli'], ['agu', 'agt', 'august', 'agustus'],
+        ['sep', 'september'], ['okt', 'october', 'oktober'], ['nov', 'november'], ['des', 'december', 'desember']
+      ];
+
+      headerParts.forEach((h, idx) => {
+        if (idx === 0) return; // Skip Name column
+        const lowerH = h.toLowerCase();
+        
+        let month = -1;
+        monthNames.forEach((names, mIdx) => {
+          if (names.some(n => lowerH.includes(n))) month = mIdx + 1;
+        });
+
+        if (month !== -1) {
+          const yearMatch = lowerH.match(/(\d{2,4})/);
+          let year = new Date().getFullYear();
+          if (yearMatch) {
+            const y = yearMatch[0];
+            year = y.length === 2 ? 2000 + parseInt(y) : parseInt(y);
+          }
+          monthMap.push({ idx, month, year });
+        }
+      });
+
+      if (monthMap.length === 0) {
+        throw new Error("Tidak menemukan nama bulan di baris pertama. Pastikan baris pertama adalah header (Nama, Jan, Feb, dst)");
+      }
+
+      addLog(`Menemukan ${monthMap.length} kolom bulan.`);
+
+      // Get existing residents
+      const existingResSnap = await getDocs(residentsRef);
+      const residentsMap = new Map();
+      existingResSnap.docs.forEach(doc => residentsMap.set(doc.data().name.toLowerCase().trim(), doc.id));
+
+      for (let i = 0; i < dataLines.length; i++) {
+        const line = dataLines[i].trim();
+        if (!line || line.startsWith('TOTAL')) continue;
+
+        const parts = line.split(delimiter).map(p => p.trim());
+        if (parts.length < 2) continue;
+
+        const nameRaw = parts[0];
+        if (!nameRaw || nameRaw.toLowerCase() === 'total') continue;
+        
+        const name = nameRaw.replace(/^["']|["']$/g, '');
+        addLog(`Memproses: ${name}...`);
+
+        let residentId = residentsMap.get(name.toLowerCase().trim());
+        if (!residentId) {
+          const resDoc = await addDoc(residentsRef, { name, block: '-', number: '-' });
+          residentId = resDoc.id;
+          residentsMap.set(name.toLowerCase().trim(), residentId);
+          addLog(`Warga baru: ${name}`);
+        }
+
+        for (const mi of monthMap) {
+          // Since we filtered headers, mi.idx refers to the index in headerParts.
+          // But 'parts' might have different length if using regex split.
+          // Let's rely on the original index mapping more carefully.
+          if (mi.idx >= parts.length) continue;
+          const val = parts[mi.idx]?.toLowerCase();
+          if (val && val !== '') {
+            let amount = 0;
+            if (val === 'lunas' || val === 'v') {
+              amount = settings?.defaultIuran || 15000;
+            } else {
+              amount = parseInt(val.replace(/[^\d]/g, '')) || 0;
+            }
+
+            if (amount > 0) {
+              const pDate = new Date(mi.year, mi.month - 1, 1);
+              const pRef = await addDoc(paymentsRef, {
+                residentId,
+                residentName: name,
+                year: mi.year,
+                months: [mi.month],
+                amount,
+                paymentDate: format(pDate, 'yyyy-MM-dd'),
+                createdAt: new Date().toISOString()
+              });
+
+              // Sync with Cash Book
+              const monthYearLabel = format(pDate, 'MMMM yyyy', { locale: localeID }).toUpperCase();
+              await addDoc(collection(db, 'cash_book'), {
+                description: `PEROLEHAN IURAN BULAN ${monthYearLabel} (${name})`,
+                date: format(pDate, 'yyyy-MM-dd'),
+                type: 'income',
+                amount: amount,
+                category: 'Iuran',
+                paymentId: pRef.id,
+                createdAt: new Date().toISOString()
+              });
+            }
+          }
+        }
+      }
+      alert("Impor Selesai!");
+      window.location.reload();
+    } catch (error: any) {
+      console.error(error);
+      alert(error.message || "Terjadi kesalahan saat impor. Cek format data Anda.");
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  return (
+    <div className="p-8 max-w-4xl mx-auto space-y-6">
+       <div className="flex items-center gap-4 bg-blue-50 p-6 rounded-3xl border border-blue-100">
+          <div className="bg-blue-600 p-3 rounded-2xl shadow-lg shadow-blue-200">
+             <FileUp className="w-6 h-6 text-white" />
+          </div>
+          <div>
+             <h3 className="text-xl font-black text-slate-800">Impor Data Legacy</h3>
+             <p className="text-xs text-slate-500 font-bold uppercase tracking-widest mt-1">Salin data Excel/CSV ke kotak di bawah</p>
+          </div>
+       </div>
+
+       <div className="grid gap-4">
+          <textarea 
+             className="min-h-[300px] w-full bg-slate-50 border-none rounded-3xl p-6 font-mono text-xs leading-relaxed focus:ring-2 focus:ring-blue-500 outline-none"
+             placeholder="NAMA,NOV,DES,JAN,Extra,FEB,Extra,MAR,APR,MEI,JUNI,JULI,AGUSTUS,SEPTEMBER,OKTOBER,NOVEMBER,DESEMBER"
+             value={csvText}
+             onChange={e => setCsvText(e.target.value)}
+          />
+          
+          <div className="flex flex-col md:flex-row gap-4 items-center justify-between">
+             <div className="flex-1">
+                {logs.length > 0 && (
+                   <div className="space-y-1">
+                      {logs.map((l, i) => (
+                         <div key={i} className="text-[10px] font-mono text-slate-400 flex items-center gap-2">
+                            <span className="w-1 h-1 rounded-full bg-blue-400" /> {l}
+                         </div>
+                      ))}
+                   </div>
+                )}
+             </div>
+             <Button 
+                onClick={handleImport} 
+                disabled={loading || !csvText.trim()} 
+                className="h-14 px-10 bg-slate-900 rounded-2xl font-black text-sm uppercase tracking-widest shadow-xl shadow-slate-200"
+             >
+                {loading ? "Sedang Memproses..." : "Mulai Impor Data"}
+             </Button>
+          </div>
+       </div>
+
+       <div className="bg-amber-50 rounded-2xl p-4 flex gap-3 border border-amber-100">
+          <AlertCircle className="w-5 h-5 text-amber-500 shrink-0" />
+          <div>
+            <p className="text-xs text-amber-900 font-bold uppercase tracking-wide mb-1">Panduan Format</p>
+            <ul className="text-[10px] text-amber-800/80 space-y-1 list-disc pl-4">
+              <li>Header kolom pertama harus Nama Warga.</li>
+              <li>Kolom berikutnya mengikuti urutan: Nov(23), Des(23), Jan(24), Extra, Feb(24), Extra, Mar(24)... hingga Des(24).</li>
+              <li>Angka dapat menggunakan format ribuan (misal: 15.000).</li>
+              <li>Kata <b>lunas</b> akan dikonversi ke nominal iuran default.</li>
+            </ul>
+          </div>
+       </div>
     </div>
   );
 }
