@@ -65,6 +65,21 @@
         "createdAt": { "type": "string", "format": "date-time" }
       },
       "required": ["uid", "email", "isActive"]
+    },
+    "AppSettings": {
+      "title": "Pengaturan Aplikasi",
+      "description": "Konfigurasi identitas RT dan iuran default",
+      "type": "object",
+      "properties": {
+        "rtNumber": { "type": "string" },
+        "dusun": { "type": "string" },
+        "village": { "type": "string" },
+        "district": { "type": "string" },
+        "regency": { "type": "string" },
+        "logoUrl": { "type": "string" },
+        "defaultIuran": { "type": "integer" }
+      },
+      "required": ["rtNumber", "village", "district", "regency", "defaultIuran"]
     }
   },
   "firestore": {
@@ -87,6 +102,10 @@
     "/cash_book/{entryId}": {
       "schema": "CashEntry",
       "description": "Log buku kas (Pemasukan & Pengeluaran)"
+    },
+    "/app_settings/{id}": {
+      "schema": "AppSettings",
+      "description": "Konfigurasi identitas RT"
     }
   }
 }

@@ -22,10 +22,23 @@ import {
   Users,
   Menu,
   X,
-  Edit
+  Edit,
+  Search,
+  Check,
+  ChevronsUpDown,
+  Building,
+  MapPin,
+  Map,
+  Settings,
+  Upload,
+  Image as ImageIcon,
+  Mic,
+  MicOff,
+  Loader2
 } from 'lucide-react';
 import { format, startOfMonth, endOfMonth, isWithinInterval, parseISO } from 'date-fns';
 import { id as localeID } from 'date-fns/locale';
+import { GoogleGenAI, Type } from "@google/genai";
 
 import { 
   onAuthStateChanged, 
@@ -53,7 +66,7 @@ import {
 } from 'firebase/firestore';
 
 import { auth, db, googleProvider } from '@/lib/firebase';
-import { Announcement, Resident, Payment, CashEntry, AppUser } from '@/lib/types';
+import { Announcement, Resident, Payment, CashEntry, AppUser, AppSettings } from '@/lib/types';
 
 // UI Components
 import { Button } from '@/components/ui/button';
@@ -69,6 +82,7 @@ import { Checkbox } from '@/components/ui/checkbox';
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
 import { Calendar } from '@/components/ui/calendar';
 import { Separator } from '@/components/ui/separator';
+import { ScrollArea } from '@/components/ui/scroll-area';
 
 const MONTHS = [
   { id: 1, name: 'Januari' },
@@ -91,6 +105,8 @@ const CURRENCY_FORMATTER = new Intl.NumberFormat('id-ID', {
   minimumFractionDigits: 0
 });
 
+const ai = new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY });
+
 export default function App() {
   const [user, setUser] = useState<User | null>(null);
   const [appUser, setAppUser] = useState<AppUser | null>(null);
@@ -103,6 +119,7 @@ export default function App() {
   const [payments, setPayments] = useState<Payment[]>([]);
   const [cashEntries, setCashEntries] = useState<CashEntry[]>([]);
   const [allUsers, setAllUsers] = useState<AppUser[]>([]);
+  const [settings, setSettings] = useState<AppSettings | null>(null);
   const [selectedYear, setSelectedYear] = useState(new Date().getFullYear());
 
   // Auth & Sync AppUser
@@ -198,11 +215,27 @@ export default function App() {
       setCashEntries(snap.docs.map(doc => ({ id: doc.id, ...doc.data() } as CashEntry)));
     });
 
+    const unsubS = onSnapshot(doc(db, 'app_settings', 'global'), (doc) => {
+      if (doc.exists()) {
+        setSettings(doc.data() as AppSettings);
+      } else {
+        // Default settings
+        setSettings({
+          rtNumber: '00',
+          village: 'Desa Dasar',
+          district: 'Kecamatan Dasar',
+          regency: 'Kota Dasar',
+          defaultIuran: 15000
+        });
+      }
+    });
+
     return () => {
       unsubA();
       unsubR();
       unsubP();
       unsubC();
+      unsubS();
     };
   }, []);
 
@@ -210,34 +243,49 @@ export default function App() {
 
   // Global Stats Calculation
   const stats = useMemo(() => {
-    const currentMonth = new Date().getMonth() + 1;
-    const currentYear = new Date().getFullYear();
-    const filteredEntries = cashEntries.filter(e => {
+    const today = new Date();
+    // If observing current year, use current month. Otherwise default to a relevant month or total? 
+    // Usually dashboards show "current month's performance" for the year being looked at.
+    const currentMonth = today.getMonth() + 1;
+    
+    const monthlyEntries = cashEntries.filter(e => {
       const d = new Date(e.date);
-      return (d.getMonth() + 1) === currentMonth && d.getFullYear() === currentYear;
+      return (d.getMonth() + 1) === currentMonth && d.getFullYear() === selectedYear;
     });
 
-    const income = filteredEntries.filter(e => e.type === 'income').reduce((acc, curr) => acc + curr.amount, 0);
-    const expense = filteredEntries.filter(e => e.type === 'expense').reduce((acc, curr) => acc + curr.amount, 0);
-    const cumulativeBalance = cashEntries.reduce((acc, curr) => curr.type === 'income' ? acc + curr.amount : acc - curr.amount, 0);
+    const income = monthlyEntries.filter(e => e.type === 'income').reduce((acc, curr) => acc + curr.amount, 0);
+    const expense = monthlyEntries.filter(e => e.type === 'expense').reduce((acc, curr) => acc + curr.amount, 0);
+    
+    // Saldo Kas RT is always all-time cumulative
+    const allTimeBalance = cashEntries.reduce((acc, curr) => curr.type === 'income' ? acc + curr.amount : acc - curr.amount, 0);
+
+    const monthlyTarget = residents.length * (settings?.defaultIuran || 15000);
 
     return {
-      totalBalance: cumulativeBalance,
+      totalBalance: allTimeBalance,
       monthlyIncome: income,
       monthlyExpense: expense,
-      realization: income > 0 ? Math.round((income / (residents.length * 15000)) * 100) : 0
+      target: monthlyTarget,
+      realization: monthlyTarget > 0 ? Math.round((income / monthlyTarget) * 100) : 0
     };
-  }, [cashEntries, residents.length]);
+  }, [cashEntries, residents.length, selectedYear, settings?.defaultIuran]);
 
   return (
     <div className="flex min-h-screen bg-slate-100 font-sans text-slate-900 overflow-x-hidden">
       {/* Mobile Header */}
       <div className="md:hidden fixed top-0 left-0 right-0 h-14 bg-slate-900 text-white flex items-center justify-between px-4 z-40">
         <div className="flex items-center gap-2">
-          <div className="bg-blue-600 p-1.5 rounded-lg">
-            <Receipt className="w-4 h-4" />
+          <div className="bg-blue-600 p-1.5 rounded-lg shrink-0 overflow-hidden flex items-center justify-center w-8 h-8">
+            {settings?.logoUrl ? (
+              <img src={settings.logoUrl} alt="Logo" className="w-full h-full object-cover" referrerPolicy="no-referrer" />
+            ) : (
+              <Receipt className="w-4 h-4" />
+            )}
           </div>
-          <span className="font-extrabold text-sm tracking-tight uppercase">KAS RT TRANSMARIN</span>
+          <div className="flex flex-col">
+            <span className="font-extrabold text-sm tracking-tight uppercase leading-none">RT-Ku</span>
+            {settings && <span className="text-[8px] font-bold text-blue-400 uppercase tracking-widest mt-0.5">RT {settings.rtNumber}</span>}
+          </div>
         </div>
         <button onClick={() => setIsSidebarOpen(!isSidebarOpen)} className="p-1">
           {isSidebarOpen ? <X className="w-6 h-6" /> : <Menu className="w-6 h-6" />}
@@ -255,14 +303,37 @@ export default function App() {
       {/* Sidebar */}
       <aside className={`
         fixed inset-y-0 left-0 z-50 w-[240px] bg-slate-900 text-white flex flex-col p-5 transition-transform duration-300 transform shrink-0
-        md:translate-x-0 md:static md:h-screen
+        md:translate-x-0 md:sticky md:top-0 md:h-screen
         ${isSidebarOpen ? 'translate-x-0' : '-translate-x-full'}
       `}>
-        <div className="hidden md:flex items-center gap-2 mb-10">
-          <div className="bg-blue-600 p-1.5 rounded-lg">
-            <Receipt className="w-5 h-5" />
+        <div className="hidden md:flex flex-col gap-3 mb-10">
+          <div className="flex items-center gap-2.5">
+            <div className="bg-blue-600 p-1.5 rounded-xl shrink-0 overflow-hidden flex items-center justify-center w-10 h-10 shadow-lg shadow-blue-900/40 border border-blue-500/20">
+              {settings?.logoUrl ? (
+                <img src={settings.logoUrl} alt="Logo" className="w-full h-full object-cover" referrerPolicy="no-referrer" />
+              ) : (
+                <Receipt className="w-5 h-5" />
+              )}
+            </div>
+            <div className="flex flex-col">
+              <span className="font-black text-[22px] tracking-tighter uppercase leading-none text-white">RT-Ku</span>
+              <div className="flex items-center gap-1 mt-0.5">
+                <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse" />
+                <span className="text-[8px] font-black text-slate-500 uppercase tracking-[0.2em]">SINKRONISASI AKTIF</span>
+              </div>
+            </div>
           </div>
-          <span className="font-extrabold text-[15px] tracking-tight uppercase">KAS RT TRANSMARIN</span>
+          
+          {settings && (
+            <div className="pl-0.5 space-y-0.5 border-l-2 border-slate-800 ml-1.5 pl-3 mt-1 py-1">
+               <div className="text-[10px] font-black text-blue-400 uppercase tracking-[0.1em] leading-tight flex items-center gap-1.5 transition-colors">
+                  <Building className="w-2.5 h-2.5" /> RT {settings.rtNumber} {settings.dusun && `/ ${settings.dusun}`}
+               </div>
+               <div className="text-[9px] text-slate-500 font-bold uppercase leading-tight truncate flex items-center gap-1.5">
+                  <MapPin className="w-2.5 h-2.5" /> {settings.village}, {settings.district}
+               </div>
+            </div>
+          )}
         </div>
 
         <nav className="space-y-1 flex-1 mt-14 md:mt-0">
@@ -331,8 +402,8 @@ export default function App() {
       </aside>
 
       {/* Main Content */}
-      <main className="flex-1 p-4 md:p-6 grid grid-rows-[auto_auto_1fr] gap-4 md:gap-6 overflow-hidden mt-14 md:mt-0">
-        <header className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
+      <main className="flex-1 p-4 md:p-6 flex flex-col gap-4 md:gap-6 overflow-y-auto mt-14 md:mt-0 h-screen">
+        <header className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4 shrink-0">
           <h1 className="text-lg md:text-xl font-extrabold tracking-tight">Dashboard Keuangan Tahunan</h1>
           <div className="flex items-center gap-2 w-full sm:w-auto">
             <Select value={selectedYear.toString()} onValueChange={(v) => setSelectedYear(parseInt(v))}>
@@ -349,20 +420,22 @@ export default function App() {
           </div>
         </header>
 
-        {/* Global Stats Row */}
-        <div className="grid grid-cols-2 md:grid-cols-4 gap-3 md:gap-5">
-           <StatCard label="Saldo Kas RT" value={CURRENCY_FORMATTER.format(stats.totalBalance)} valueColor="text-emerald-500" />
-           <StatCard label="Target (Bln Ini)" value={CURRENCY_FORMATTER.format(residents.length * 15000)} />
-           <StatCard label="Capaian" value={`${stats.realization}%`} />
-           <StatCard label="Keluar (Bln Ini)" value={CURRENCY_FORMATTER.format(stats.monthlyExpense)} valueColor="text-rose-500" />
-        </div>
+        {/* Global Stats Row - Hide when in cashbook if the user wants consolidation */}
+        {activeTab !== 'cashbook' && (
+          <div className="grid grid-cols-2 md:grid-cols-4 gap-3 md:gap-5 shrink-0">
+             <StatCard label="SALDO KAS RT" value={CURRENCY_FORMATTER.format(stats.totalBalance)} valueColor="text-emerald-500" />
+             <StatCard label="TARGET (BLN INI)" value={CURRENCY_FORMATTER.format(stats.target)} />
+             <StatCard label="CAPAIAN" value={`${stats.realization}%`} />
+             <StatCard label="KELUAR (BLN INI)" value={CURRENCY_FORMATTER.format(stats.monthlyExpense)} valueColor="text-rose-500" />
+          </div>
+        )}
 
         {/* Content Tabs Content Replacements */}
-        <div className="min-h-0">
+        <div className="flex-1 min-h-0">
           {activeTab === 'summary' && (
             <div className="grid grid-cols-1 lg:grid-cols-[1fr_350px] gap-6 h-full">
-              <Panel title="Matriks Pembayaran Iuran Warga" subtitle="Default: Rp 15.000 / Bln">
-                 <IuranTable residents={residents} payments={payments} year={selectedYear} />
+              <Panel title="Matriks Pembayaran Iuran Warga" subtitle={`Default: ${CURRENCY_FORMATTER.format(settings?.defaultIuran || 15000)} / Bln`}>
+                 <IuranTable residents={residents} payments={payments} year={selectedYear} isAdmin={!!appUser?.isActive} />
               </Panel>
               <Panel title="Informasi & Pengumuman" action={user && appUser?.isActive && <AddAnnouncementDialog />}>
                 <AnnouncementList announcements={announcements} isAdmin={!!appUser?.isActive} />
@@ -372,7 +445,7 @@ export default function App() {
 
           {activeTab === 'iuran' && (
              <Panel title="Data Lengkap Iuran" subtitle={`Tahun ${selectedYear}`}>
-               <IuranTable residents={residents} payments={payments} year={selectedYear} />
+               <IuranTable residents={residents} payments={payments} year={selectedYear} isAdmin={!!appUser?.isActive} />
              </Panel>
           )}
 
@@ -387,8 +460,8 @@ export default function App() {
           )}
 
           {activeTab === 'admin' && appUser?.isActive && (
-             <Panel title="Daftar Admin & Status Akses" subtitle="Kelola persetujuan akses pengurus">
-                <AdminManagement users={allUsers} currentUserUid={user?.uid || ''} />
+             <Panel title="Manajemen Pengurus & Sistem" subtitle="Kelola hak akses dan konfigurasi unit RT">
+                <AdminManagement users={allUsers} currentUserUid={user?.uid || ''} settings={settings} />
              </Panel>
           )}
         </div>
@@ -415,9 +488,9 @@ function SidebarItem({ active, onClick, icon, label }: { active: boolean, onClic
 
 function StatCard({ label, value, valueColor }: { label: string, value: string, valueColor?: string }) {
   return (
-    <div className="bg-white p-4 rounded-xl border border-slate-200 shadow-sm">
-      <div className="text-[10px] font-bold uppercase tracking-wider text-slate-400 mb-1">{label}</div>
-      <div className={`text-xl font-mono font-bold tracking-tighter ${valueColor || 'text-slate-900'}`}>{value}</div>
+    <div className="bg-white p-4 rounded-xl border-4 border-slate-200/50 shadow-[0_8px_30px_rgb(0,0,0,0.04)] hover:shadow-[0_8px_30px_rgb(0,0,0,0.08)] transition-all">
+      <div className="text-[9px] font-black uppercase tracking-widest text-slate-400 mb-2">{label}</div>
+      <div className={`text-xl md:text-2xl font-sans font-black tracking-tight ${valueColor || 'text-slate-800'}`}>{value}</div>
     </div>
   );
 }
@@ -439,13 +512,28 @@ function Panel({ title, subtitle, children, action }: { title: string, subtitle?
   );
 }
 
-function IuranTable({ residents, payments, year }: { residents: Resident[], payments: Payment[], year: number }) {
+function IuranTable({ residents, payments, year, isAdmin }: { residents: Resident[], payments: Payment[], year: number, isAdmin: boolean }) {
+  const [editingPayment, setEditingPayment] = useState<Payment | null>(null);
+  const [isDeleting, setIsDeleting] = useState(false);
+  const [confirmDelete, setConfirmDelete] = useState(false);
+
   const matrixData = useMemo(() => {
     return residents.map(resident => {
       const residentPayments = payments.filter(p => p.residentId === resident.id && p.year === year);
-      const paidMonths = new Set<number>();
-      residentPayments.forEach(p => p.months.forEach(m => paidMonths.add(m)));
-      return { ...resident, paidMonths };
+      const monthlyData: Record<number, { amount: number, payment: Payment | null }> = {};
+      
+      residentPayments.forEach(p => {
+        const amountPerMonth = p.amount / p.months.length;
+        p.months.forEach(m => {
+          const current = monthlyData[m] || { amount: 0, payment: null };
+          monthlyData[m] = {
+            amount: current.amount + amountPerMonth,
+            payment: p // Store the last payment found for this month as target for editing
+          };
+        });
+      });
+
+      return { ...resident, monthlyData };
     });
   }, [residents, payments, year]);
 
@@ -467,13 +555,24 @@ function IuranTable({ residents, payments, year }: { residents: Resident[], paym
                 {row.name}
               </TableCell>
               {MONTHS.map(m => {
-                const isPaid = row.paidMonths.has(m.id);
+                const data = row.monthlyData[m.id];
+                const amount = data?.amount || 0;
+                const payment = data?.payment || null;
+                
                 return (
-                  <TableCell key={m.id} className="text-center p-2">
-                    {isPaid ? (
-                      <span className="bg-emerald-100 text-emerald-700 font-black px-1.5 py-0.5 rounded text-[9px] border border-emerald-200">L</span>
+                  <TableCell key={m.id} className="text-center p-1.5 border-x border-slate-50/50">
+                    {amount > 0 ? (
+                      <button 
+                        disabled={!isAdmin}
+                        onClick={() => isAdmin && payment && setEditingPayment(payment)}
+                        className={`font-bold text-[10px] whitespace-nowrap transition-all ${isAdmin ? 'text-blue-600 hover:text-blue-800 hover:scale-110 cursor-pointer underline decoration-blue-200 underline-offset-2' : 'text-blue-600 cursor-default'}`}
+                      >
+                        {amount.toLocaleString('id-ID')}
+                      </button>
                     ) : (
-                      <span className="bg-slate-100 text-slate-300 font-black px-1.5 py-0.5 rounded text-[9px]">-</span>
+                      <div className="flex items-center justify-center">
+                        <span className="bg-slate-100 text-slate-300 font-black px-1.5 py-0.5 rounded text-[9px]">-</span>
+                      </div>
                     )}
                   </TableCell>
                 );
@@ -487,6 +586,126 @@ function IuranTable({ residents, payments, year }: { residents: Resident[], paym
           )}
         </TableBody>
       </Table>
+
+      {/* Edit Payment Dialog */}
+      <Dialog 
+        open={!!editingPayment} 
+        onOpenChange={(open) => {
+          if (!open) {
+            setEditingPayment(null);
+            setConfirmDelete(false);
+            setIsDeleting(false);
+          }
+        }}
+      >
+        <DialogContent className="sm:max-w-[400px] border-none shadow-2xl rounded-3xl p-0 overflow-hidden">
+          {editingPayment && (
+            <div className="flex flex-col">
+              <div className="p-6 pb-0">
+                <DialogHeader>
+                  <div className="flex items-center justify-between mb-2">
+                    <DialogTitle className="flex items-center gap-2 text-xl font-black text-slate-800">
+                      <div className="bg-blue-100 p-2 rounded-xl">
+                        <Receipt className="w-5 h-5 text-blue-600" />
+                      </div>
+                      Detail Pembayaran
+                    </DialogTitle>
+                  </div>
+                  <p className="text-[11px] text-slate-400 font-bold uppercase tracking-widest pl-11">Pengelolaan data transaksi iuran</p>
+                </DialogHeader>
+              </div>
+
+              <div className="p-6 space-y-6">
+                <div className="bg-slate-50/50 p-6 rounded-3xl border border-slate-100 space-y-4">
+                  <div className="flex justify-between items-center">
+                    <span className="text-slate-400 font-bold uppercase tracking-[0.15em] text-[9px]">Warga</span>
+                    <span className="font-black text-slate-700 uppercase tracking-tight">{residents.find(r => r.id === editingPayment.residentId)?.name}</span>
+                  </div>
+                  <div className="flex justify-between items-center">
+                    <span className="text-slate-400 font-bold uppercase tracking-[0.15em] text-[9px]">Tahun</span>
+                    <span className="font-black text-slate-700">{editingPayment.year}</span>
+                  </div>
+                  <div className="flex justify-between items-center">
+                    <span className="text-slate-400 font-bold uppercase tracking-[0.15em] text-[9px]">Bulan</span>
+                    <span className="font-black text-slate-700">
+                      {editingPayment.months.map(m => MONTHS.find(mn => mn.id === m)?.name).join(', ')}
+                    </span>
+                  </div>
+                  <Separator className="bg-slate-200/40" />
+                  <div className="bg-white p-4 rounded-2xl border border-slate-100/50 flex justify-between items-center shadow-sm">
+                    <span className="text-slate-400 font-bold uppercase tracking-[0.15em] text-[9px]">Total Nominal</span>
+                    <span className="font-black text-2xl text-blue-600 tracking-tighter">
+                      Rp {editingPayment.amount.toLocaleString('id-ID')}
+                    </span>
+                  </div>
+                </div>
+
+                <div className="space-y-4">
+                  <p className="text-[10px] text-rose-500 font-bold italic text-center px-6 leading-relaxed">
+                    * Untuk mengedit, harap hapus transaksi ini dan input ulang dengan data yang benar agar sistem penomoran dan saldo tetap akurat.
+                  </p>
+                  
+                  <div className="grid gap-2">
+                    {!confirmDelete ? (
+                      <Button 
+                        variant="destructive" 
+                        className="w-full h-14 font-black rounded-2xl bg-rose-50 text-rose-500 hover:bg-rose-100 border-none shadow-none transition-all group"
+                        onClick={() => setConfirmDelete(true)}
+                      >
+                        <Trash2 className="w-5 h-5 mr-3 group-hover:scale-110 transition-transform" /> 
+                        Hapus Transaksi
+                      </Button>
+                    ) : (
+                      <div className="grid grid-cols-2 gap-2">
+                        <Button 
+                          variant="ghost" 
+                          className="h-14 font-bold rounded-2xl text-slate-400"
+                          onClick={() => setConfirmDelete(false)}
+                          disabled={isDeleting}
+                        >
+                          Batal
+                        </Button>
+                        <Button 
+                          variant="destructive" 
+                          className="h-14 font-black rounded-2xl bg-rose-600 text-white shadow-lg shadow-rose-200"
+                          disabled={isDeleting}
+                          onClick={async () => {
+                            setIsDeleting(true);
+                            try {
+                              const batch = writeBatch(db);
+                              batch.delete(doc(db, 'payments', editingPayment.id));
+                              const cashQuery = await getDocs(query(collection(db, 'cash_book'), where('paymentId', '==', editingPayment.id)));
+                              cashQuery.forEach(d => batch.delete(d.ref));
+                              await batch.commit();
+                              setEditingPayment(null);
+                              setConfirmDelete(false);
+                            } catch (error) {
+                              console.error("Delete error:", error);
+                              alert("Gagal menghapus transaksi.");
+                            } finally {
+                              setIsDeleting(false);
+                            }
+                          }}
+                        >
+                          {isDeleting ? "Menghapus..." : "Ya, Hapus"}
+                        </Button>
+                      </div>
+                    )}
+                    <Button 
+                      variant="ghost" 
+                      className="w-full h-12 font-bold text-slate-400 text-xs" 
+                      onClick={() => setEditingPayment(null)}
+                      disabled={isDeleting}
+                    >
+                      Tutup
+                    </Button>
+                  </div>
+                </div>
+              </div>
+            </div>
+          )}
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }
@@ -518,10 +737,15 @@ function AnnouncementList({ announcements, isAdmin }: { announcements: Announcem
 }
 
 function ResidentList({ residents, isAdmin }: { residents: Resident[], isAdmin: boolean }) {
+  const [deletingId, setDeletingId] = useState<string | null>(null);
+
   const handleDelete = async (id: string) => {
-    if (confirm('Hapus warga?')) await deleteDoc(doc(db, 'residents', id));
-  };   return (
-    <div className="p-0 overflow-x-auto">
+    await deleteDoc(doc(db, 'residents', id));
+    setDeletingId(null);
+  };
+
+  return (
+    <div className="p-0 overflow-x-auto min-h-[400px]">
       <Table>
         <TableHeader className="bg-slate-50 uppercase text-[10px] font-black text-slate-400 tracking-widest">
            <TableRow>
@@ -532,17 +756,24 @@ function ResidentList({ residents, isAdmin }: { residents: Resident[], isAdmin: 
         </TableHeader>
         <TableBody>
            {residents.map(r => (
-             <TableRow key={r.id} className="text-xs group">
+             <TableRow key={r.id} className="text-xs group hover:bg-slate-50/50 transition-colors h-14">
                 <TableCell className="pl-4 font-bold text-slate-700 whitespace-nowrap">{r.name}</TableCell>
-                <TableCell className="font-mono text-slate-400 whitespace-nowrap">Blok {r.block}/{r.number}</TableCell>
+                <TableCell className="font-mono text-slate-400 whitespace-nowrap">Blok {r.block} / {r.number}</TableCell>
                 <TableCell className="text-right pr-4">
                   <div className="flex items-center justify-end gap-1">
                     {isAdmin && (
                       <>
                         <EditResidentDialog resident={r} />
-                        <button onClick={() => handleDelete(r.id)} className="p-1 text-slate-300 hover:text-red-500 transition-colors">
-                          <Trash2 className="w-3.5 h-3.5" />
-                        </button>
+                        {deletingId === r.id ? (
+                          <div className="flex items-center gap-1 animate-in fade-in slide-in-from-right-2 duration-200">
+                             <button onClick={() => setDeletingId(null)} className="px-2 py-1 text-[9px] font-bold text-slate-400 hover:text-slate-600 transition-colors uppercase">Batal</button>
+                             <button onClick={() => handleDelete(r.id)} className="px-2 py-1 text-[9px] font-black bg-rose-600 text-white rounded-md hover:bg-rose-700 transition-colors uppercase shadow-sm">Hapus</button>
+                          </div>
+                        ) : (
+                          <button onClick={() => setDeletingId(r.id)} className="p-2 text-slate-300 hover:text-red-500 transition-colors rounded-lg hover:bg-rose-50 group-hover:opacity-100">
+                            <Trash2 className="w-4 h-4" />
+                          </button>
+                        )}
                       </>
                     )}
                   </div>
@@ -606,12 +837,24 @@ function AddPaymentGlobal({ entries, residents }: { entries: Payment[], resident
 
 function PayIuranForm({ residents, currentPayments, onSuccess }: { residents: Resident[], currentPayments: Payment[], onSuccess: () => void }) {
   const [residentId, setResidentId] = useState('');
+  const [searchQuery, setSearchQuery] = useState('');
+  const [isSearchOpen, setIsSearchOpen] = useState(false);
   const [year, setYear] = useState(new Date().getFullYear().toString());
   const [selectedMonths, setSelectedMonths] = useState<number[]>([]);
   const [amount, setAmount] = useState('15000');
   const [paymentDate, setPaymentDate] = useState<Date>(new Date());
 
   const resident = residents.find(r => r.id === residentId);
+
+  const filteredResidents = useMemo(() => {
+    if (!searchQuery) return residents;
+    const lowerQuery = searchQuery.toLowerCase();
+    return residents.filter(r => 
+      r.name.toLowerCase().includes(lowerQuery) || 
+      r.block.toLowerCase().includes(lowerQuery) || 
+      r.number.toLowerCase().includes(lowerQuery)
+    );
+  }, [residents, searchQuery]);
 
   const existingMonths = useMemo(() => {
     if (!residentId) return new Set<number>();
@@ -681,30 +924,58 @@ function PayIuranForm({ residents, currentPayments, onSuccess }: { residents: Re
       <div className="grid gap-5">
         <div className="grid gap-2">
           <Label className="text-[10px] uppercase font-black text-slate-400">Pilih Warga</Label>
-          <Select value={residentId} onValueChange={setResidentId}>
-            <SelectTrigger className="h-11 bg-slate-50 border-none w-full">
-              <SelectValue>
-                {resident ? (
-                  <span className="flex items-center gap-2">
-                    <span className="font-bold">{resident.name}</span>
-                    <span className="text-slate-400 text-[10px] font-mono">Blok {resident.block}/{resident.number}</span>
-                  </span>
-                ) : (
-                  <span className="text-slate-400">Pilih Nama Warga</span>
-                )}
-              </SelectValue>
-            </SelectTrigger>
-            <SelectContent>
-              {residents.map(r => (
-                <SelectItem key={r.id} value={r.id}>
-                  <div className="flex flex-col">
-                    <span className="font-bold">{r.name}</span>
-                    <span className="text-[10px] opacity-70">Blok {r.block}/{r.number}</span>
-                  </div>
-                </SelectItem>
-              ))}
-            </SelectContent>
-          </Select>
+          <Popover open={isSearchOpen} onOpenChange={setIsSearchOpen}>
+            <PopoverTrigger render={<Button variant="outline" role="combobox" aria-expanded={isSearchOpen} className="h-11 bg-slate-50 border-none w-full justify-between font-normal" />}>
+              {resident ? (
+                <span className="flex items-center gap-2 overflow-hidden">
+                  <span className="font-bold truncate">{resident.name}</span>
+                  <span className="text-slate-400 text-[10px] font-mono shrink-0">Blok {resident.block}/{resident.number}</span>
+                </span>
+              ) : (
+                <span className="text-slate-400">Pilih Nama Warga...</span>
+              )}
+              <ChevronsUpDown className="ml-2 h-4 w-4 shrink-0 opacity-50" />
+            </PopoverTrigger>
+            <PopoverContent className="w-[--anchor-width] p-0 shadow-xl border-slate-100" align="start">
+              <div className="flex items-center border-b border-slate-100 px-3 h-11">
+                <Search className="mr-2 h-4 w-4 shrink-0 opacity-50" />
+                <input
+                  className="flex h-full w-full bg-transparent py-3 text-sm outline-none placeholder:text-slate-400 disabled:cursor-not-allowed disabled:opacity-50"
+                  placeholder="Cari nama atau blok..."
+                  value={searchQuery}
+                  onChange={(e) => setSearchQuery(e.target.value)}
+                  autoFocus
+                />
+              </div>
+              <ScrollArea className="max-h-[300px] overflow-y-auto">
+                <div className="p-1">
+                  {filteredResidents.length === 0 ? (
+                    <div className="py-6 text-center text-sm text-slate-500">Warga tidak ditemukan.</div>
+                  ) : (
+                    filteredResidents.map((r) => (
+                      <div
+                        key={r.id}
+                        onClick={() => {
+                          setResidentId(r.id);
+                          setIsSearchOpen(false);
+                          setSearchQuery('');
+                        }}
+                        className={`flex items-center gap-2 px-3 py-2.5 rounded-lg cursor-pointer transition-colors ${
+                          residentId === r.id ? 'bg-blue-50 text-blue-700' : 'hover:bg-slate-50 text-slate-600'
+                        }`}
+                      >
+                        <Check className={`h-4 w-4 shrink-0 transition-opacity ${residentId === r.id ? 'opacity-100' : 'opacity-0'}`} />
+                        <div className="flex flex-col min-w-0">
+                          <span className="font-bold text-sm truncate">{r.name}</span>
+                          <span className="text-[10px] opacity-70 font-mono">Blok {r.block}/{r.number}</span>
+                        </div>
+                      </div>
+                    ))
+                  )}
+                </div>
+              </ScrollArea>
+            </PopoverContent>
+          </Popover>
         </div>
 
         <div className="grid grid-cols-2 gap-4">
@@ -777,12 +1048,35 @@ function CashBookModule({ cashEntries, isAdmin }: { cashEntries: CashEntry[], is
   const [filterMonth, setFilterMonth] = useState((new Date().getMonth() + 1).toString());
   const [filterYear, setFilterYear] = useState(new Date().getFullYear().toString());
   const [openAdd, setOpenAdd] = useState(false);
+  const [editingEntry, setEditingEntry] = useState<CashEntry | null>(null);
 
   const filteredData = useMemo(() => {
-    return cashEntries.filter(entry => {
+    const raw = cashEntries.filter(entry => {
       const d = new Date(entry.date);
       return (d.getMonth() + 1) === parseInt(filterMonth) && d.getFullYear() === parseInt(filterYear);
-    }).sort((a, b) => new Date(a.date).getTime() - new Date(b.date).getTime());
+    });
+
+    const nonIuran = raw.filter(e => e.category !== 'Iuran');
+    const iuranList = raw.filter(e => e.category === 'Iuran');
+
+    const result = [...nonIuran];
+
+    if (iuranList.length > 0) {
+      const totalIuran = iuranList.reduce((acc, curr) => acc + curr.amount, 0);
+      const monthLabel = MONTHS.find(m => m.id === parseInt(filterMonth))?.name.toUpperCase();
+      
+      result.push({
+        id: `grouped-iuran-${filterMonth}-${filterYear}`,
+        description: `PEROLEHAN IURAN BULAN ${monthLabel} ${filterYear}`,
+        date: iuranList[0].date, // Use first date found
+        type: 'income',
+        amount: totalIuran,
+        category: 'Iuran',
+        isGrouped: true
+      });
+    }
+
+    return result.sort((a, b) => new Date(a.date).getTime() - new Date(b.date).getTime());
   }, [cashEntries, filterMonth, filterYear]);
 
   const stats = useMemo(() => {
@@ -823,34 +1117,116 @@ function CashBookModule({ cashEntries, isAdmin }: { cashEntries: CashEntry[], is
   };
 
   return (
-    <div className="space-y-6">
-      <div className="grid gap-4 md:grid-cols-3">
-        <Card className="bg-blue-600 text-white border-none shadow-lg shadow-blue-100 rounded-2xl">
-          <CardHeader className="pb-2">
-            <CardDescription className="text-blue-100 font-bold uppercase tracking-widest text-[9px]">Total Pemasukan</CardDescription>
-            <CardTitle className="text-2xl font-black font-mono">{CURRENCY_FORMATTER.format(stats.totalIncome)}</CardTitle>
-          </CardHeader>
-        </Card>
-        <Card className="bg-rose-600 text-white border-none shadow-lg shadow-rose-100 rounded-2xl">
-          <CardHeader className="pb-2">
-            <CardDescription className="text-rose-100 font-bold uppercase tracking-widest text-[9px]">Total Pengeluaran</CardDescription>
-            <CardTitle className="text-2xl font-black font-mono">{CURRENCY_FORMATTER.format(stats.totalExpense)}</CardTitle>
-          </CardHeader>
-        </Card>
-        <Card className="bg-slate-900 text-white border-none shadow-lg shadow-slate-200 rounded-2xl">
-          <CardHeader className="pb-2">
-            <CardDescription className="text-slate-400 font-bold uppercase tracking-widest text-[9px]">Saldo Kas (Bulan Ini)</CardDescription>
-            <CardTitle className="text-2xl font-black font-mono">{CURRENCY_FORMATTER.format(stats.balance)}</CardTitle>
-          </CardHeader>
-        </Card>
+    <div className="space-y-6 pb-20">
+      {/* Edit Entry Dialog */}
+      <Dialog open={!!editingEntry} onOpenChange={(open) => !open && setEditingEntry(null)}>
+        <DialogContent className="sm:max-w-[450px]">
+          {editingEntry && (
+            <div className="space-y-4">
+              <DialogHeader>
+                <div className="flex items-center justify-between pr-8">
+                  <DialogTitle>Edit Transaksi Manual</DialogTitle>
+                  <VoiceInputButton 
+                    onParsed={(data) => {
+                      if (data.description) setEditingEntry({...editingEntry, description: data.description});
+                      if (data.amount) setEditingEntry({...editingEntry, amount: data.amount});
+                      if (data.type) setEditingEntry({...editingEntry, type: data.type});
+                      if (data.date) setEditingEntry({...editingEntry, date: data.date});
+                    }} 
+                  />
+                </div>
+              </DialogHeader>
+              <div className="grid gap-4 py-4">
+                <div className="grid gap-2">
+                  <Label>Uraian</Label>
+                  <Input 
+                    value={editingEntry.description} 
+                    onChange={e => setEditingEntry({...editingEntry, description: e.target.value})} 
+                  />
+                </div>
+                <div className="grid grid-cols-2 gap-4">
+                  <div className="grid gap-2">
+                    <Label>Tipe</Label>
+                    <Select 
+                      value={editingEntry.type} 
+                      onValueChange={(v: any) => setEditingEntry({...editingEntry, type: v})}
+                    >
+                      <SelectTrigger>
+                        <SelectValue />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="income">Pemasukan</SelectItem>
+                        <SelectItem value="expense">Pengeluaran</SelectItem>
+                      </SelectContent>
+                    </Select>
+                  </div>
+                  <div className="grid gap-2">
+                    <Label>Tanggal</Label>
+                    <Popover>
+                      <PopoverTrigger render={<Button variant="outline" className="w-full justify-start text-left font-normal border-slate-200" />}>
+                        {editingEntry.date ? format(new Date(editingEntry.date), "dd/MM/yyyy") : <span>Pilih</span>}
+                      </PopoverTrigger>
+                      <PopoverContent className="w-auto p-0" align="start">
+                        <Calendar 
+                          mode="single" 
+                          selected={new Date(editingEntry.date)} 
+                          onSelect={(d) => d && setEditingEntry({...editingEntry, date: format(d, 'yyyy-MM-dd')})} 
+                        />
+                      </PopoverContent>
+                    </Popover>
+                  </div>
+                </div>
+                <div className="grid gap-2">
+                  <Label>Nominal (Rp)</Label>
+                  <Input 
+                    type="number" 
+                    value={editingEntry.amount} 
+                    onChange={e => setEditingEntry({...editingEntry, amount: parseInt(e.target.value) || 0})} 
+                  />
+                </div>
+              </div>
+              <DialogFooter>
+                <Button 
+                  onClick={async () => {
+                    await updateDoc(doc(db, 'cash_book', editingEntry.id), {
+                      description: editingEntry.description,
+                      date: editingEntry.date,
+                      type: editingEntry.type,
+                      amount: editingEntry.amount,
+                      updatedAt: new Date().toISOString()
+                    });
+                    setEditingEntry(null);
+                  }} 
+                  className="w-full"
+                >
+                  Simpan Perubahan
+                </Button>
+              </DialogFooter>
+            </div>
+          )}
+        </DialogContent>
+      </Dialog>
+      <div className="grid gap-4 md:grid-cols-3 shrink-0">
+        <div className="bg-blue-600 p-5 rounded-2xl shadow-[0_10px_40px_rgba(37,99,235,0.25)] border-b-4 border-blue-700">
+          <div className="text-[10px] font-black uppercase tracking-widest text-blue-100/80 mb-2">Total Pemasukan</div>
+          <div className="text-2xl font-black text-white">{CURRENCY_FORMATTER.format(stats.totalIncome)}</div>
+        </div>
+        <div className="bg-rose-600 p-5 rounded-2xl shadow-[0_10px_40px_rgba(225,29,72,0.25)] border-b-4 border-rose-700">
+          <div className="text-[10px] font-black uppercase tracking-widest text-rose-100/80 mb-2">Total Pengeluaran</div>
+          <div className="text-2xl font-black text-white">{CURRENCY_FORMATTER.format(stats.totalExpense)}</div>
+        </div>
+        <div className="bg-slate-800 p-5 rounded-2xl shadow-[0_10px_40px_rgba(30,41,59,0.25)] border-b-4 border-slate-900">
+          <div className="text-[10px] font-black uppercase tracking-widest text-slate-400 mb-2">Saldo Kas (Bulan Ini)</div>
+          <div className="text-2xl font-black text-white">{CURRENCY_FORMATTER.format(stats.balance)}</div>
+        </div>
       </div>
 
-      <Card className="border-none shadow-xl shadow-slate-100 rounded-3xl">
-        <CardHeader className="bg-white pb-6 pt-8 border-b border-slate-50">
+      <div className="bg-white border border-slate-200 rounded-3xl overflow-hidden shadow-sm">
+        <div className="p-6 md:p-8 bg-white border-b border-slate-100">
           <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-6">
             <div>
-              <CardTitle className="text-2xl font-black text-slate-800 tracking-tight">Buku Kas RT</CardTitle>
-              <CardDescription className="font-medium text-slate-500 mt-1">Laporan arus kas bulanan yang transparan.</CardDescription>
+              <h2 className="text-3xl font-black text-slate-800 tracking-tight">Buku Kas RT</h2>
+              <p className="font-medium text-slate-500 mt-1">Laporan arus kas bulanan yang transparan.</p>
             </div>
             <div className="flex flex-wrap items-center gap-3">
               <div className="flex gap-2">
@@ -878,7 +1254,17 @@ function CashBookModule({ cashEntries, isAdmin }: { cashEntries: CashEntry[], is
                    </DialogTrigger>
                    <DialogContent className="sm:max-w-[450px]">
                       <DialogHeader>
-                        <DialogTitle>Input Transaksi Manual</DialogTitle>
+                        <div className="flex items-center justify-between pr-8">
+                          <DialogTitle>Input Transaksi Manual</DialogTitle>
+                          <VoiceInputButton 
+                            onParsed={(data) => {
+                              if (data.description) setNewDesc(data.description);
+                              if (data.amount) setNewAmount(data.amount.toString());
+                              if (data.type) setNewType(data.type);
+                              if (data.date) setNewDate(new Date(data.date));
+                            }} 
+                          />
+                        </div>
                       </DialogHeader>
                       <div className="grid gap-4 py-4">
                         <div className="grid gap-2">
@@ -923,8 +1309,8 @@ function CashBookModule({ cashEntries, isAdmin }: { cashEntries: CashEntry[], is
               )}
             </div>
           </div>
-        </CardHeader>
-        <CardContent className="p-0">
+        </div>
+        <div className="p-0">
           <div className="overflow-x-auto">
             <Table>
               <TableHeader className="bg-slate-50/50 border-b border-slate-50">
@@ -947,19 +1333,38 @@ function CashBookModule({ cashEntries, isAdmin }: { cashEntries: CashEntry[], is
                          <div className={`w-1.5 h-1.5 rounded-full ${item.type === 'income' ? 'bg-green-500' : 'bg-red-500'}`} />
                          <span className="font-bold text-slate-700">{item.description}</span>
                       </div>
-                      {item.paymentId && <Badge className="mt-1 bg-green-50 text-[9px] text-green-600 font-bold border-none">IURAN OTOMATIS</Badge>}
+                      {(item.paymentId || item.isGrouped) && (
+                        <Badge className="mt-1 bg-green-50 text-[9px] text-green-600 font-bold border-none uppercase tracking-tighter">
+                          IURAN OTOMATIS
+                        </Badge>
+                      )}
                     </TableCell>
                     <TableCell className={`py-4 text-right font-black ${item.type === 'income' ? 'text-green-600' : 'text-slate-200'}`}>
-                      {item.type === 'income' ? CURRENCY_FORMATTER.format(item.amount) : '-'}
+                      {item.type === 'income' ? `Rp ${item.amount.toLocaleString('id-ID')}` : '-'}
                     </TableCell>
                     <TableCell className={`py-4 text-right font-black ${item.type === 'expense' ? 'text-red-500' : 'text-slate-200'}`}>
-                      {item.type === 'expense' ? CURRENCY_FORMATTER.format(item.amount) : '-'}
+                      {item.type === 'expense' ? `Rp ${item.amount.toLocaleString('id-ID')}` : '-'}
                     </TableCell>
                     <TableCell className="pr-8 py-4 text-right">
-                       {isAdmin && (
-                         <Button variant="ghost" size="icon" onClick={() => handleDelete(item.id)} className="opacity-0 group-hover:opacity-100 transition-opacity text-slate-300 hover:text-red-500">
-                           <Trash2 className="w-4 h-4" />
-                         </Button>
+                       {isAdmin && !item.isGrouped && (
+                         <div className="flex items-center justify-end gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
+                           <Button 
+                             variant="ghost" 
+                             size="icon" 
+                             onClick={() => setEditingEntry(item)} 
+                             className="text-slate-300 hover:text-blue-600"
+                           >
+                             <Edit className="w-4 h-4" />
+                           </Button>
+                           <Button 
+                             variant="ghost" 
+                             size="icon" 
+                             onClick={() => handleDelete(item.id)} 
+                             className="text-slate-300 hover:text-red-500"
+                           >
+                             <Trash2 className="w-4 h-4" />
+                           </Button>
+                         </div>
                        )}
                     </TableCell>
                   </TableRow>
@@ -977,8 +1382,8 @@ function CashBookModule({ cashEntries, isAdmin }: { cashEntries: CashEntry[], is
               </TableBody>
             </Table>
           </div>
-        </CardContent>
-      </Card>
+        </div>
+      </div>
       
       <div className="bg-slate-900 rounded-3xl p-8 text-white flex flex-col md:flex-row justify-between items-center gap-6">
          <div>
@@ -996,7 +1401,7 @@ function CashBookModule({ cashEntries, isAdmin }: { cashEntries: CashEntry[], is
   );
 }
 
-function AdminManagement({ users, currentUserUid }: { users: AppUser[], currentUserUid: string }) {
+function AdminManagement({ users, currentUserUid, settings }: { users: AppUser[], currentUserUid: string, settings: AppSettings | null }) {
   const toggleStatus = async (user: AppUser) => {
     if (user.uid === currentUserUid) {
       alert("Anda tidak bisa menonaktifkan akun sendiri.");
@@ -1007,48 +1412,61 @@ function AdminManagement({ users, currentUserUid }: { users: AppUser[], currentU
   };
 
   return (
-    <div className="p-0 overflow-x-auto">
-      <Table className="min-w-[600px]">
-        <TableHeader className="bg-slate-50 uppercase text-[10px] font-black text-slate-400 tracking-widest">
-           <TableRow>
-              <TableHead className="pl-4">Admin</TableHead>
-              <TableHead>Email</TableHead>
-              <TableHead>Status</TableHead>
-              <TableHead className="text-right pr-4">Aksi</TableHead>
-           </TableRow>
-        </TableHeader>
-        <TableBody>
-           {users.map(u => (
-             <TableRow key={u.uid} className="text-xs">
-                <TableCell className="pl-4 font-bold text-slate-700">
-                  <div className="flex items-center gap-2">
-                    {u.photoURL && <img src={u.photoURL} alt="" className="w-5 h-5 rounded-full" referrerPolicy="no-referrer" />}
-                    {u.displayName}
-                  </div>
-                </TableCell>
-                <TableCell className="font-mono text-slate-400">{u.email}</TableCell>
-                <TableCell>
-                  {u.isActive ? (
-                    <Badge className="bg-emerald-100 text-emerald-700 border-none text-[9px] font-black">AKTIF</Badge>
-                  ) : (
-                    <Badge className="bg-slate-100 text-slate-400 border-none text-[9px] font-black">PENDING</Badge>
-                  )}
-                </TableCell>
-                <TableCell className="text-right pr-4">
-                  <Button 
-                    size="xs" 
-                    variant={u.isActive ? "destructive" : "default"}
-                    onClick={() => toggleStatus(u)}
-                    disabled={u.uid === currentUserUid}
-                    className="text-[9px] font-bold h-6"
-                  >
-                    {u.isActive ? 'Nonaktifkan' : 'Aktifkan'}
-                  </Button>
-                </TableCell>
-             </TableRow>
-           ))}
-        </TableBody>
-      </Table>
+    <div className="p-0">
+      <Tabs defaultValue="list" className="w-full">
+        <TabsList className="bg-slate-100 p-1 rounded-xl mx-6 mb-4">
+          <TabsTrigger value="list" className="rounded-lg font-bold text-xs px-6">Daftar Admin</TabsTrigger>
+          <TabsTrigger value="settings" className="rounded-lg font-bold text-xs px-6">Pengaturan RT</TabsTrigger>
+        </TabsList>
+        <TabsContent value="list">
+          <div className="overflow-x-auto">
+            <Table className="min-w-[600px]">
+              <TableHeader className="bg-slate-50 uppercase text-[10px] font-black text-slate-400 tracking-widest">
+                 <TableRow>
+                    <TableHead className="pl-4">Admin</TableHead>
+                    <TableHead>Email</TableHead>
+                    <TableHead>Status</TableHead>
+                    <TableHead className="text-right pr-4">Aksi</TableHead>
+                 </TableRow>
+              </TableHeader>
+              <TableBody>
+                 {users.map(u => (
+                   <TableRow key={u.uid} className="text-xs">
+                      <TableCell className="pl-4 font-bold text-slate-700">
+                        <div className="flex items-center gap-2">
+                          {u.photoURL && <img src={u.photoURL} alt="" className="w-5 h-5 rounded-full" referrerPolicy="no-referrer" />}
+                          {u.displayName}
+                        </div>
+                      </TableCell>
+                      <TableCell className="font-mono text-slate-400">{u.email}</TableCell>
+                      <TableCell>
+                        {u.isActive ? (
+                          <Badge className="bg-emerald-100 text-emerald-700 border-none text-[9px] font-black">AKTIF</Badge>
+                        ) : (
+                          <Badge className="bg-slate-100 text-slate-400 border-none text-[9px] font-black">PENDING</Badge>
+                        )}
+                      </TableCell>
+                      <TableCell className="text-right pr-4">
+                        <Button 
+                          size="xs" 
+                          variant={u.isActive ? "destructive" : "default"}
+                          onClick={() => toggleStatus(u)}
+                          disabled={u.uid === currentUserUid}
+                          className="text-[9px] font-bold h-6"
+                        >
+                          {u.isActive ? 'Nonaktifkan' : 'Aktifkan'}
+                        </Button>
+                      </TableCell>
+                   </TableRow>
+                 ))}
+              </TableBody>
+            </Table>
+          </div>
+        </TabsContent>
+        <TabsContent value="settings">
+           <SettingsForm settings={settings} />
+        </TabsContent>
+      </Tabs>
     </div>
   );
 }
@@ -1220,5 +1638,217 @@ function ResidentForm({
         <Button onClick={onSave} className="w-full h-11 bg-blue-600 hover:bg-blue-700 text-sm font-bold rounded-xl shadow-lg shadow-blue-100">{submitLabel}</Button>
       </DialogFooter>
     </>
+  );
+}
+
+function VoiceInputButton({ onParsed }: { onParsed: (data: any) => void }) {
+  const [isListening, setIsListening] = useState(false);
+  const [isParsing, setIsParsing] = useState(false);
+
+  const startListening = () => {
+    const SpeechRecognition = (window as any).SpeechRecognition || (window as any).webkitSpeechRecognition;
+    if (!SpeechRecognition) {
+      alert("Browser Anda tidak mendukung fitur suara.");
+      return;
+    }
+
+    const recognition = new SpeechRecognition();
+    recognition.lang = 'id-ID';
+    recognition.interimResults = false;
+    recognition.maxAlternatives = 1;
+
+    recognition.onstart = () => setIsListening(true);
+    recognition.onend = () => setIsListening(false);
+    recognition.onerror = () => setIsListening(false);
+
+    recognition.onresult = async (event: any) => {
+      const text = event.results[0][0].transcript;
+      setIsParsing(true);
+      try {
+        const today = format(new Date(), 'yyyy-MM-dd');
+        const prompt = `Ekstrak informasi transaksi keuangan (pemasukan atau pengeluaran RT) dari teks berikut: "${text}".
+        Keluaran harus berupa JSON murni dengan format:
+        {
+          "description": string (uraian singkat),
+          "amount": number (nominal angka saja),
+          "type": "income" | "expense",
+          "date": "YYYY-MM-DD"
+        }
+        Aturan:
+        - Jika ada kata "masuk", "iuran", "terima", asumsikan type="income".
+        - Jika ada kata "beli", "bayar", "keluar", "biaya", asumsikan type="expense".
+        - Jika tidak ada tanggal yang disebutkan, gunakan "${today}".
+        - Jika nominal disebutkan dalam kata-kata (misal: sepuluh ribu), konversi ke angka (10000).`;
+
+        const result = await ai.models.generateContent({
+          model: "gemini-3-flash-preview",
+          contents: prompt,
+          config: {
+            responseMimeType: "application/json",
+            responseSchema: {
+              type: Type.OBJECT,
+              properties: {
+                description: { type: Type.STRING },
+                amount: { type: Type.NUMBER },
+                type: { type: Type.STRING, enum: ["income", "expense"] },
+                date: { type: Type.STRING }
+              },
+              required: ["description", "amount", "type", "date"]
+            }
+          }
+        });
+
+        const parsed = JSON.parse(result.text || '{}');
+        onParsed(parsed);
+      } catch (error) {
+        console.error("Gemini Error:", error);
+        alert("Gagal memproses suara. Silakan coba input manual.");
+      } finally {
+        setIsParsing(false);
+      }
+    };
+
+    recognition.start();
+  };
+
+  return (
+    <Button 
+      variant="outline" 
+      size="sm" 
+      onClick={startListening} 
+      disabled={isListening || isParsing}
+      className={`rounded-full h-8 px-3 flex items-center gap-1.5 transition-all
+        ${isListening ? 'bg-red-50 text-red-600 border-red-200 animate-pulse' : 
+          isParsing ? 'bg-blue-50 text-blue-600 border-blue-200' : 'hover:bg-slate-100'}`}
+    >
+      {isParsing ? (
+        <Loader2 className="w-3.5 h-3.5 animate-spin" />
+      ) : isListening ? (
+        <MicOff className="w-3.5 h-3.5" />
+      ) : (
+        <Mic className="w-3.5 h-3.5" />
+      )}
+      <span className="text-[10px] font-bold uppercase tracking-tight">
+        {isParsing ? 'Memproses...' : isListening ? 'Mendengarkan...' : 'Input Suara'}
+      </span>
+    </Button>
+  );
+}
+
+function SettingsForm({ settings }: { settings: AppSettings | null }) {
+  const [loading, setLoading] = useState(false);
+  const [rtNumber, setRtNumber] = useState(settings?.rtNumber || '');
+  const [dusun, setDusun] = useState(settings?.dusun || '');
+  const [village, setVillage] = useState(settings?.village || '');
+  const [district, setDistrict] = useState(settings?.district || '');
+  const [regency, setRegency] = useState(settings?.regency || '');
+  const [defaultIuran, setDefaultIuran] = useState(settings?.defaultIuran?.toString() || '15000');
+  const [logoUrl, setLogoUrl] = useState(settings?.logoUrl || '');
+
+  const handleFileUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (file) {
+      if (file.size > 500 * 1024) {
+        alert("Ukuran file terlalu besar (maks 500KB)");
+        return;
+      }
+      const reader = new FileReader();
+      reader.onloadend = () => {
+        setLogoUrl(reader.result as string);
+      };
+      reader.readAsDataURL(file);
+    }
+  };
+
+  const handleSave = async () => {
+    if (!rtNumber || !village || !district || !regency || !defaultIuran) {
+       alert("Mohon lengkapi semua field wajib (*)");
+       return;
+    }
+
+    setLoading(true);
+    try {
+      await setDoc(doc(db, 'app_settings', 'global'), {
+        rtNumber,
+        dusun,
+        village,
+        district,
+        regency,
+        defaultIuran: parseInt(defaultIuran),
+        logoUrl
+      });
+      alert("Pengaturan berhasil disimpan!");
+    } catch (error) {
+      console.error(error);
+      alert("Gagal menyimpan pengaturan.");
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  return (
+    <div className="p-6 max-w-2xl bg-white rounded-3xl border border-slate-100 shadow-sm mx-6 mb-10">
+      <div className="flex items-center gap-3 mb-8 pb-4 border-b border-slate-50">
+        <div className="bg-slate-900 p-2 rounded-xl">
+          <Settings className="w-5 h-5 text-white" />
+        </div>
+        <div>
+          <h3 className="text-lg font-black text-slate-800">Konfigurasi Unit RT</h3>
+          <p className="text-xs text-slate-400 font-bold uppercase tracking-widest">Identitas Wilayah & Iuran Dasar</p>
+        </div>
+      </div>
+
+      <div className="grid gap-6">
+        <div className="flex flex-col md:flex-row gap-6">
+          <div className="flex-1 space-y-4">
+            <div className="grid gap-1.5">
+              <Label className="text-[10px] uppercase font-black text-slate-400">Nomor RT *</Label>
+              <Input value={rtNumber} onChange={e => setRtNumber(e.target.value)} placeholder="005" className="h-11 bg-slate-50 border-none" />
+            </div>
+            <div className="grid gap-1.5">
+              <Label className="text-[10px] uppercase font-black text-slate-400">Dusun (Opsional)</Label>
+              <Input value={dusun} onChange={e => setDusun(e.target.value)} placeholder="Dusun Karang" className="h-11 bg-slate-50 border-none" />
+            </div>
+          </div>
+          <div className="w-full md:w-32 flex flex-col items-center justify-center gap-3">
+             <Label className="text-[10px] uppercase font-black text-slate-400 text-center">Logo RT</Label>
+             <div className="w-24 h-24 rounded-2xl border-2 border-dashed border-slate-200 bg-slate-50 flex items-center justify-center overflow-hidden relative group">
+                {logoUrl ? (
+                  <img src={logoUrl} alt="Logo" className="w-full h-full object-cover" referrerPolicy="no-referrer" />
+                ) : (
+                  <ImageIcon className="w-8 h-8 text-slate-300" />
+                )}
+                <label className="absolute inset-0 bg-black/60 text-white flex flex-col items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity cursor-pointer text-[10px] font-bold">
+                  <Upload className="w-4 h-4 mb-1" /> GANTI
+                  <input type="file" className="hidden" accept="image/*" onChange={handleFileUpload} />
+                </label>
+             </div>
+          </div>
+        </div>
+
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+          <div className="grid gap-1.5">
+            <Label className="text-[10px] uppercase font-black text-slate-400">Desa / Kelurahan *</Label>
+            <Input value={village} onChange={e => setVillage(e.target.value)} placeholder="..." className="h-11 bg-slate-50 border-none" />
+          </div>
+          <div className="grid gap-1.5">
+            <Label className="text-[10px] uppercase font-black text-slate-400">Kecamatan *</Label>
+            <Input value={district} onChange={e => setDistrict(e.target.value)} placeholder="..." className="h-11 bg-slate-50 border-none" />
+          </div>
+          <div className="grid gap-1.5">
+            <Label className="text-[10px] uppercase font-black text-slate-400">Kabupaten / Kota *</Label>
+            <Input value={regency} onChange={e => setRegency(e.target.value)} placeholder="..." className="h-11 bg-slate-50 border-none" />
+          </div>
+          <div className="grid gap-1.5">
+            <Label className="text-[10px] uppercase font-black text-slate-400">Iuran Bulanan Default (Rp) *</Label>
+            <Input type="number" value={defaultIuran} onChange={e => setDefaultIuran(e.target.value)} placeholder="15000" className="h-11 bg-slate-50 border-none font-bold text-blue-600" />
+          </div>
+        </div>
+
+        <Button onClick={handleSave} disabled={loading} className="h-14 bg-slate-900 hover:bg-slate-800 rounded-2xl font-black text-sm tracking-widest uppercase shadow-xl shadow-slate-200 mt-4">
+          {loading ? "Menyimpan..." : "Update Konfigurasi RT"}
+        </Button>
+      </div>
+    </div>
   );
 }

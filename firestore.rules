@@ -72,5 +72,11 @@ service cloud.firestore {
         (request.resource.data.type == 'income' || request.resource.data.type == 'expense');
       allow update, delete: if isActiveAdmin();
     }
+
+    // App Settings: Public Read
+    match /app_settings/{id} {
+      allow read: if true;
+      allow write: if isActiveAdmin();
+    }
   }
 }

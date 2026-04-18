@@ -32,6 +32,7 @@ export interface CashEntry {
   amount: number;
   category: string;
   paymentId?: string; // Linked to a payment
+  isGrouped?: boolean; // UI only consolidation flag
 }
 
 export interface AppUser {
@@ -41,4 +42,14 @@ export interface AppUser {
   photoURL: string;
   isActive: boolean;
   createdAt: string;
+}
+
+export interface AppSettings {
+  rtNumber: string;
+  dusun?: string;
+  village: string; // Desa/Kelurahan
+  district: string; // Kecamatan
+  regency: string; // Kab/Kota
+  logoUrl?: string;
+  defaultIuran: number;
 }
