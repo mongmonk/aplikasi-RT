@@ -459,8 +459,8 @@ export default function App() {
         <div className="flex-1 min-h-0">
           {activeTab === 'summary' && (
             <div className="grid grid-cols-1 lg:grid-cols-[1fr_350px] gap-6 h-full">
-              <Panel title="Matriks Pembayaran Iuran Warga" subtitle={`Default: ${CURRENCY_FORMATTER.format(settings?.defaultIuran || 15000)} / Bln`}>
-                 <IuranTable residents={residents} payments={payments} year={selectedYear} isAdmin={!!appUser?.isActive} onSync={fetchData} settings={settings} />
+              <Panel title="Statistik Iuran Tahunan" subtitle={`Tahun ${selectedYear} · ${residents.length} Warga · Default: ${CURRENCY_FORMATTER.format(settings?.defaultIuran || 15000)} / Bln`}>
+                 <IuranStatsSummary residents={residents} payments={payments} year={selectedYear} defaultIuran={settings?.defaultIuran || 15000} />
               </Panel>
               <Panel title="Informasi & Pengumuman" action={user && appUser?.isActive && <AddAnnouncementDialog onSync={fetchData} />}>
                 <AnnouncementList announcements={announcements} isAdmin={!!appUser?.isActive} onSync={fetchData} />
@@ -614,6 +614,148 @@ function Panel({ title, subtitle, children, action }: { title: string, subtitle?
       </div>
       <div className="flex-1 overflow-auto min-h-0">
         {children}
+      </div>
+    </div>
+  );
+}
+
+// --- IURAN STATS SUMMARY (for Ringkasan tab) ---
+
+function IuranStatsSummary({ residents, payments, year, defaultIuran }: { residents: Resident[], payments: Payment[], year: number, defaultIuran: number }) {
+  const yearPayments = payments.filter(p => p.year === year);
+
+  const monthlyStats = MONTHS.map(m => {
+    const paid = residents.filter(r =>
+      yearPayments.some(p => p.residentId === r.id && p.months.includes(m.id))
+    ).length;
+    return { ...m, paid, total: residents.length, pct: residents.length > 0 ? Math.round((paid / residents.length) * 100) : 0 };
+  });
+
+  const totalSlots = residents.length * 12;
+  const totalPaid = monthlyStats.reduce((acc, m) => acc + m.paid, 0);
+  const totalCollected = yearPayments.reduce((acc, p) => acc + p.amount, 0);
+  const yearlyTarget = residents.length * defaultIuran * 12;
+
+  // Resident payment counts
+  const residentPaidMonths = residents.map(r => {
+    const months = new Set<number>();
+    yearPayments.filter(p => p.residentId === r.id).forEach(p => p.months.forEach(m => months.add(m)));
+    return { name: r.name, count: months.size };
+  }).sort((a, b) => b.count - a.count);
+
+  const lunas = residentPaidMonths.filter(r => r.count === 12).length;
+  const partial = residentPaidMonths.filter(r => r.count > 0 && r.count < 12).length;
+  const belum = residentPaidMonths.filter(r => r.count === 0).length;
+
+  return (
+    <div className="space-y-6">
+      {/* Summary Cards */}
+      <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+        <div className="bg-emerald-50 rounded-xl p-3 border border-emerald-100">
+          <div className="text-[10px] font-bold text-emerald-600 uppercase tracking-wider">Total Terkumpul</div>
+          <div className="text-lg font-black text-emerald-700 mt-1">{CURRENCY_FORMATTER.format(totalCollected)}</div>
+          <div className="text-[10px] text-emerald-500 mt-0.5">dari {CURRENCY_FORMATTER.format(yearlyTarget)}</div>
+        </div>
+        <div className="bg-blue-50 rounded-xl p-3 border border-blue-100">
+          <div className="text-[10px] font-bold text-blue-600 uppercase tracking-wider">Capaian Tahunan</div>
+          <div className="text-lg font-black text-blue-700 mt-1">{yearlyTarget > 0 ? Math.round((totalCollected / yearlyTarget) * 100) : 0}%</div>
+          <div className="text-[10px] text-blue-500 mt-0.5">{totalPaid} dari {totalSlots} slot</div>
+        </div>
+        <div className="bg-amber-50 rounded-xl p-3 border border-amber-100">
+          <div className="text-[10px] font-bold text-amber-600 uppercase tracking-wider">Lunas (12 Bln)</div>
+          <div className="text-lg font-black text-amber-700 mt-1">{lunas} <span className="text-xs font-bold text-amber-500">warga</span></div>
+          <div className="text-[10px] text-amber-500 mt-0.5">dari {residents.length} warga</div>
+        </div>
+        <div className="bg-rose-50 rounded-xl p-3 border border-rose-100">
+          <div className="text-[10px] font-bold text-rose-600 uppercase tracking-wider">Belum Bayar</div>
+          <div className="text-lg font-black text-rose-700 mt-1">{belum} <span className="text-xs font-bold text-rose-500">warga</span></div>
+          <div className="text-[10px] text-rose-500 mt-0.5">{partial} sebagian bayar</div>
+        </div>
+      </div>
+
+      {/* Monthly Progress */}
+      <div>
+        <div className="text-xs font-bold text-slate-500 uppercase tracking-wider mb-3">Progres Per Bulan</div>
+        <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-2">
+          {monthlyStats.map(m => (
+            <div key={m.id} className="bg-white rounded-xl border border-slate-100 p-3 hover:shadow-sm transition-shadow">
+              <div className="flex items-center justify-between mb-2">
+                <span className="text-xs font-bold text-slate-700">{m.name}</span>
+                <span className={`text-[10px] font-black px-1.5 py-0.5 rounded-full ${
+                  m.pct === 100 ? 'bg-emerald-100 text-emerald-700' :
+                  m.pct >= 50 ? 'bg-blue-100 text-blue-700' :
+                  m.pct > 0 ? 'bg-amber-100 text-amber-700' :
+                  'bg-slate-100 text-slate-400'
+                }`}>
+                  {m.pct}%
+                </span>
+              </div>
+              <div className="w-full h-2 bg-slate-100 rounded-full overflow-hidden">
+                <div
+                  className={`h-full rounded-full transition-all duration-500 ${
+                    m.pct === 100 ? 'bg-emerald-500' :
+                    m.pct >= 50 ? 'bg-blue-500' :
+                    m.pct > 0 ? 'bg-amber-500' :
+                    'bg-slate-200'
+                  }`}
+                  style={{ width: `${m.pct}%` }}
+                />
+              </div>
+              <div className="text-[10px] text-slate-400 mt-1.5 font-medium">{m.paid}/{m.total} warga</div>
+            </div>
+          ))}
+        </div>
+      </div>
+
+      {/* Status Breakdown */}
+      <div>
+        <div className="text-xs font-bold text-slate-500 uppercase tracking-wider mb-3">Status Pembayaran Warga</div>
+        <div className="grid grid-cols-1 md:grid-cols-3 gap-2">
+          {/* Lunas */}
+          <div className="bg-emerald-50/50 border border-emerald-100 rounded-xl p-3">
+            <div className="flex items-center gap-2 mb-2">
+              <div className="w-2 h-2 rounded-full bg-emerald-500" />
+              <span className="text-[11px] font-bold text-emerald-700">Lunas (12/12)</span>
+              <span className="ml-auto text-xs font-black text-emerald-600">{lunas}</span>
+            </div>
+            <div className="space-y-0.5 max-h-32 overflow-y-auto">
+              {residentPaidMonths.filter(r => r.count === 12).map(r => (
+                <div key={r.name} className="text-[10px] text-emerald-600 font-medium truncate">✓ {r.name}</div>
+              ))}
+              {lunas === 0 && <div className="text-[10px] text-slate-400 italic">Belum ada</div>}
+            </div>
+          </div>
+
+          {/* Sebagian */}
+          <div className="bg-amber-50/50 border border-amber-100 rounded-xl p-3">
+            <div className="flex items-center gap-2 mb-2">
+              <div className="w-2 h-2 rounded-full bg-amber-500" />
+              <span className="text-[11px] font-bold text-amber-700">Sebagian</span>
+              <span className="ml-auto text-xs font-black text-amber-600">{partial}</span>
+            </div>
+            <div className="space-y-0.5 max-h-32 overflow-y-auto">
+              {residentPaidMonths.filter(r => r.count > 0 && r.count < 12).map(r => (
+                <div key={r.name} className="text-[10px] text-amber-600 font-medium truncate">{r.count}/12 — {r.name}</div>
+              ))}
+              {partial === 0 && <div className="text-[10px] text-slate-400 italic">Belum ada</div>}
+            </div>
+          </div>
+
+          {/* Belum Bayar */}
+          <div className="bg-rose-50/50 border border-rose-100 rounded-xl p-3">
+            <div className="flex items-center gap-2 mb-2">
+              <div className="w-2 h-2 rounded-full bg-rose-500" />
+              <span className="text-[11px] font-bold text-rose-700">Belum Bayar</span>
+              <span className="ml-auto text-xs font-black text-rose-600">{belum}</span>
+            </div>
+            <div className="space-y-0.5 max-h-32 overflow-y-auto">
+              {residentPaidMonths.filter(r => r.count === 0).map(r => (
+                <div key={r.name} className="text-[10px] text-rose-500 font-medium truncate">✗ {r.name}</div>
+              ))}
+              {belum === 0 && <div className="text-[10px] text-slate-400 italic">Semua sudah bayar! 🎉</div>}
+            </div>
+          </div>
+        </div>
       </div>
     </div>
   );
