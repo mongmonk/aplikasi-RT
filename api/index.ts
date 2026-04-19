@@ -455,12 +455,6 @@ function getHtmlTemplate(): string | null {
 }
 
 async function serveDynamicHtml(_req: express.Request, res: express.Response) {
-  const template = getHtmlTemplate();
-  if (!template) {
-    res.status(404).send('Not found');
-    return;
-  }
-
   let title = 'Aplikasi RT-Ku';
   let desc = 'Sistem Informasi Keuangan dan Buku Kas Warga';
 
@@ -475,9 +469,28 @@ async function serveDynamicHtml(_req: express.Request, res: express.Response) {
     console.error('SSR settings fetch error:', e);
   }
 
-  const html = template.replaceAll('__APP_TITLE__', title).replaceAll('__APP_DESC__', desc);
+  const template = getHtmlTemplate();
+  if (template) {
+    const html = template.replaceAll('__APP_TITLE__', title).replaceAll('__APP_DESC__', desc);
+    res.setHeader('Content-Type', 'text/html; charset=utf-8');
+    return res.send(html);
+  }
+
+  // Fallback: serve a minimal HTML if template not found
+  console.error('SSR template not found, serving fallback');
   res.setHeader('Content-Type', 'text/html; charset=utf-8');
-  res.send(html);
+  res.send(`<!doctype html><html lang="en"><head>
+    <meta charset="UTF-8"/><meta name="viewport" content="width=device-width,initial-scale=1.0"/>
+    <title>${title}</title>
+    <meta name="description" content="${desc}"/>
+    <meta property="og:title" content="${title}"/>
+    <meta property="og:description" content="${desc}"/>
+    <meta property="og:image" content="/api/logo"/>
+    <meta name="theme-color" content="#0f172a"/>
+    <link rel="icon" href="/api/logo"/><link rel="manifest" href="/manifest.json"/>
+  </head><body><div id="root"></div>
+    <script>location.reload();</script>
+  </body></html>`);
 }
 
 // Vite middleware for development
