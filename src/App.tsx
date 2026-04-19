@@ -1166,7 +1166,7 @@ function AddAnnouncementDialog({ onSync }: { onSync: () => void }) {
           title, 
           content, 
           date: new Date().toISOString(), 
-          author: auth.currentUser.email
+          author: auth.currentUser.displayName || auth.currentUser.email?.split('@')[0] || 'Admin'
         })
       });
       if (res.ok) {
