@@ -6,7 +6,7 @@
   "scripts": {
     "start": "tsx api/index.ts",
     "dev": "tsx api/index.ts",
-    "build": "vite build",
+    "build": "vite build && node -e \"require('fs').renameSync('dist/index.html','dist/_template.html')\"",
     "preview": "vite preview",
     "clean": "rm -rf dist",
     "lint": "tsc --noEmit"

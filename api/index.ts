@@ -440,9 +440,10 @@ let cachedHtml: string | null = null;
 function getHtmlTemplate(): string | null {
   if (cachedHtml) return cachedHtml;
   const tryPaths = [
+    path.join(process.cwd(), 'dist', '_template.html'),
+    path.join(__dirname, '..', 'dist', '_template.html'),
     path.join(process.cwd(), 'dist', 'index.html'),
     path.join(__dirname, '..', 'dist', 'index.html'),
-    path.join(__dirname, 'dist', 'index.html'),
   ];
   for (const p of tryPaths) {
     try {
