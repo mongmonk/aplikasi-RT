@@ -36,7 +36,9 @@ import {
   MicOff,
   Loader2,
   FileUp,
-  AlertCircle
+  AlertCircle,
+  Download,
+  Smartphone
 } from 'lucide-react';
 import { format, startOfMonth, endOfMonth, isWithinInterval, parseISO } from 'date-fns';
 import { id as localeID } from 'date-fns/locale';
@@ -489,6 +491,88 @@ export default function App() {
           )}
         </div>
       </main>
+
+      {/* PWA Install Banner */}
+      <InstallBanner />
+    </div>
+  );
+}
+
+// --- PWA INSTALL BANNER ---
+
+function InstallBanner() {
+  const [deferredPrompt, setDeferredPrompt] = useState<any>(null);
+  const [showBanner, setShowBanner] = useState(false);
+  const [installing, setInstalling] = useState(false);
+
+  useEffect(() => {
+    // Don't show if already installed (standalone mode)
+    if (window.matchMedia('(display-mode: standalone)').matches) return;
+    // Don't show if user previously dismissed
+    if (localStorage.getItem('pwa-dismissed')) return;
+
+    const handler = (e: Event) => {
+      e.preventDefault();
+      setDeferredPrompt(e);
+      // Small delay so page loads first
+      setTimeout(() => setShowBanner(true), 2000);
+    };
+
+    window.addEventListener('beforeinstallprompt', handler);
+    return () => window.removeEventListener('beforeinstallprompt', handler);
+  }, []);
+
+  const handleInstall = async () => {
+    if (!deferredPrompt) return;
+    setInstalling(true);
+    deferredPrompt.prompt();
+    const { outcome } = await deferredPrompt.userChoice;
+    if (outcome === 'accepted') {
+      setShowBanner(false);
+    }
+    setInstalling(false);
+    setDeferredPrompt(null);
+  };
+
+  const handleDismiss = () => {
+    setShowBanner(false);
+    localStorage.setItem('pwa-dismissed', 'true');
+  };
+
+  if (!showBanner) return null;
+
+  return (
+    <div className="fixed bottom-0 left-0 right-0 z-[100] p-3 md:p-4 animate-in slide-in-from-bottom duration-500">
+      <div className="max-w-lg mx-auto bg-gradient-to-r from-slate-900 via-slate-800 to-slate-900 rounded-2xl shadow-2xl shadow-black/40 border border-slate-700/50 p-4 flex items-center gap-4">
+        {/* Icon */}
+        <div className="shrink-0 w-12 h-12 rounded-xl bg-blue-600/20 border border-blue-500/30 flex items-center justify-center">
+          <Smartphone className="w-6 h-6 text-blue-400" />
+        </div>
+
+        {/* Text */}
+        <div className="flex-1 min-w-0">
+          <div className="text-sm font-bold text-white leading-tight">Install Aplikasi RT-Ku</div>
+          <div className="text-[11px] text-slate-400 mt-0.5 leading-snug">Akses cepat dari home screen, bisa offline!</div>
+        </div>
+
+        {/* Actions */}
+        <div className="shrink-0 flex items-center gap-2">
+          <button
+            onClick={handleDismiss}
+            className="text-[10px] text-slate-500 hover:text-slate-300 font-bold uppercase tracking-wider transition-colors px-2 py-1"
+          >
+            Nanti
+          </button>
+          <button
+            onClick={handleInstall}
+            disabled={installing}
+            className="flex items-center gap-1.5 bg-blue-600 hover:bg-blue-500 text-white text-xs font-bold px-4 py-2.5 rounded-xl transition-all active:scale-95 disabled:opacity-60"
+          >
+            <Download className="w-3.5 h-3.5" />
+            {installing ? 'Installing...' : 'Install'}
+          </button>
+        </div>
+      </div>
     </div>
   );
 }
