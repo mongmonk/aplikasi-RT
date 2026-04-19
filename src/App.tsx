@@ -412,6 +412,17 @@ export default function App() {
             <AuthDialog />
           )}
         </div>
+
+        <div className="text-center pt-3 border-t border-slate-800/50">
+          <a
+            href="https://t.me/cemonggaul"
+            target="_blank"
+            rel="noopener noreferrer"
+            className="text-[9px] text-slate-600 hover:text-blue-400 transition-colors font-medium tracking-wide"
+          >
+            developed by @cemonggaul
+          </a>
+        </div>
       </aside>
 
       {/* Main Content */}

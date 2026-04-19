@@ -1,0 +1,24 @@
+{
+  "name": "Aplikasi RT-Ku",
+  "short_name": "RT-Ku",
+  "description": "Sistem Informasi Keuangan dan Buku Kas Warga RT",
+  "start_url": "/",
+  "display": "standalone",
+  "background_color": "#0f172a",
+  "theme_color": "#0f172a",
+  "orientation": "portrait-primary",
+  "icons": [
+    {
+      "src": "/api/logo",
+      "sizes": "192x192",
+      "type": "image/png",
+      "purpose": "any maskable"
+    },
+    {
+      "src": "/api/logo",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "any maskable"
+    }
+  ]
+}
