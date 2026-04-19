@@ -4,6 +4,7 @@
  */
 
 import React, { useState, useEffect, useMemo } from 'react';
+import { Analytics } from '@vercel/analytics/react';
 import { 
   Plus, 
   Trash2, 
@@ -494,6 +495,7 @@ export default function App() {
 
       {/* PWA Install Banner */}
       <InstallBanner />
+      <Analytics />
     </div>
   );
 }
