@@ -1069,13 +1069,13 @@ function AnnouncementList({ announcements, isAdmin, onSync }: { announcements: A
     <div className="p-4 space-y-4">
       {announcements.map(ann => (
         <div key={ann.id} className="group relative border-l-4 border-blue-600 pl-4 py-1">
-          <div className="font-extrabold text-[13px] text-slate-800 mb-0.5">{ann.title}</div>
+          <div className="font-extrabold text-[13px] text-slate-800 mb-0.5 pr-8">{ann.title}</div>
           <div className="text-[10px] font-bold text-slate-400 uppercase tracking-widest mb-2 flex items-center gap-2">
-            {format(new Date(ann.date), 'dd MMM yyyy')} • {ann.author}
+            {format(new Date(ann.date), 'dd MMM yyyy')} • {ann.author?.includes('@') ? ann.author.split('@')[0] : ann.author}
           </div>
           <p className="text-[11px] text-slate-600 leading-relaxed font-medium line-clamp-3 overflow-hidden text-ellipsis whitespace-pre-wrap">{ann.content}</p>
           {isAdmin && (
-            <div className="absolute top-0 right-0 p-1 opacity-0 group-hover:opacity-100 transition-opacity">
+            <div className="absolute top-0 right-0 p-1">
                {deletingId === ann.id ? (
                  <div className="flex items-center gap-1 bg-white shadow-sm border border-red-100 p-0.5 rounded-md animate-in fade-in zoom-in duration-200">
                     <button onClick={() => setDeletingId(null)} className="px-1.5 py-0.5 text-[8px] font-bold text-slate-400">Batal</button>

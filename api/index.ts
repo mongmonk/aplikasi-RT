@@ -342,6 +342,15 @@ app.post("/api/announcements", async (req, res) => {
   }
 });
 
+app.delete("/api/announcements/:id", async (req, res) => {
+  try {
+    await client.execute({ sql: "DELETE FROM announcements WHERE id = ?", args: [req.params.id] });
+    res.json({ success: true });
+  } catch (error) {
+    res.status(500).json({ error: "Failed to delete announcement" });
+  }
+});
+
 // Settings
 app.get("/api/logo", async (req, res) => {
   try {
