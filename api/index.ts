@@ -276,7 +276,11 @@ app.post("/api/import/bulk", async (req, res) => {
       });
     });
 
-    await client.batch(statements);
+    const CHUNK_SIZE = 50;
+    for (let i = 0; i < statements.length; i += CHUNK_SIZE) {
+      await client.batch(statements.slice(i, i + CHUNK_SIZE));
+    }
+    
     res.json({ success: true, count: statements.length });
   } catch (error) {
     console.error(error);
