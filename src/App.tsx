@@ -1747,7 +1747,7 @@ function CashBookModule({ cashEntries, isAdmin, onSync }: { cashEntries: CashEnt
                               onClick={(e) => {
                                 e.stopPropagation();
                                 const msgDesc = item.description.charAt(0).toUpperCase() + item.description.slice(1).toLowerCase();
-                                const message = `📢 *INFO KAS RT*\n\nTerima kasih atas partisipasi seluruh warga. ${msgDesc} telah terkumpul sebesar *Rp ${item.amount.toLocaleString('id-ID')}*.\n\nMari bersama kita bangun lingkungan yang lebih baik! 🙏`;
+                                const message = `📢 *INFO KAS RT*\n\nTerima kasih atas partisipasi seluruh warga. ${msgDesc} telah terkumpul sebesar *Rp ${item.amount.toLocaleString('id-ID')}*.\n\nUntuk detail lengkap pemasukan dan pengeluaran dapat dilihat di link:\n${window.location.origin}\n\nMari bersama kita bangun lingkungan yang lebih baik! 🙏`;
                                 window.open(`https://wa.me/?text=${encodeURIComponent(message)}`, '_blank');
                               }}
                               className="inline-flex items-center justify-center bg-[#25D366] text-white rounded-full p-1.5 w-6 h-6 shadow-sm hover:scale-110 hover:shadow-md active:scale-95 transition-all"
