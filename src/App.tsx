@@ -510,7 +510,7 @@ function IuranTable({ residents, payments, year, isAdmin, onSync }: { residents:
   }, [residents, payments, year]);
 
   return (
-    <div className="text-[11px] overflow-x-auto relative">
+    <div className="text-[11px] overflow-auto h-full relative">
       <Table className="min-w-[700px]">
         <TableHeader className="bg-slate-50 sticky top-0 z-20 shadow-sm border-b-2 border-slate-200 uppercase font-black text-slate-400">
           <TableRow>
