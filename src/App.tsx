@@ -407,7 +407,7 @@ export default function App() {
           {activeTab === 'summary' && (
             <div className="grid grid-cols-1 lg:grid-cols-[1fr_350px] gap-6 h-full">
               <Panel title="Matriks Pembayaran Iuran Warga" subtitle={`Default: ${CURRENCY_FORMATTER.format(settings?.defaultIuran || 15000)} / Bln`}>
-                 <IuranTable residents={residents} payments={payments} year={selectedYear} isAdmin={!!appUser?.isActive} onSync={fetchData} />
+                 <IuranTable residents={residents} payments={payments} year={selectedYear} isAdmin={!!appUser?.isActive} onSync={fetchData} settings={settings} />
               </Panel>
               <Panel title="Informasi & Pengumuman" action={user && appUser?.isActive && <AddAnnouncementDialog onSync={fetchData} />}>
                 <AnnouncementList announcements={announcements} isAdmin={!!appUser?.isActive} onSync={fetchData} />
@@ -417,7 +417,7 @@ export default function App() {
 
           {activeTab === 'iuran' && (
              <Panel title="Data Lengkap Iuran" subtitle={`Tahun ${selectedYear}`}>
-               <IuranTable residents={residents} payments={payments} year={selectedYear} isAdmin={!!appUser?.isActive} onSync={fetchData} />
+               <IuranTable residents={residents} payments={payments} year={selectedYear} isAdmin={!!appUser?.isActive} onSync={fetchData} settings={settings} />
              </Panel>
           )}
 
@@ -484,10 +484,15 @@ function Panel({ title, subtitle, children, action }: { title: string, subtitle?
   );
 }
 
-function IuranTable({ residents, payments, year, isAdmin, onSync }: { residents: Resident[], payments: Payment[], year: number, isAdmin: boolean, onSync: () => void }) {
+function IuranTable({ residents, payments, year, isAdmin, onSync, settings }: { residents: Resident[], payments: Payment[], year: number, isAdmin: boolean, onSync: () => void, settings: AppSettings | null }) {
   const [editingPayment, setEditingPayment] = useState<Payment | null>(null);
   const [isDeleting, setIsDeleting] = useState(false);
   const [confirmDelete, setConfirmDelete] = useState(false);
+
+  // Quick Add State
+  const [quickAdd, setQuickAdd] = useState<{resident: Resident, month: number} | null>(null);
+  const [quickAmount, setQuickAmount] = useState<number>(0);
+  const [isSaving, setIsSaving] = useState(false);
 
   const matrixData = useMemo(() => {
     return residents.map(resident => {
@@ -543,7 +548,18 @@ function IuranTable({ residents, payments, year, isAdmin, onSync }: { residents:
                       </button>
                     ) : (
                       <div className="flex items-center justify-center">
-                        <span className="bg-slate-100 text-slate-300 font-black px-1.5 py-0.5 rounded text-[9px]">-</span>
+                        <button
+                          disabled={!isAdmin}
+                          onClick={() => {
+                            if (isAdmin) {
+                              setQuickAdd({ resident: row, month: m.id });
+                              setQuickAmount(settings?.defaultIuran || 15000);
+                            }
+                          }}
+                          className={`font-black px-2 py-0.5 rounded text-[9px] transition-all ${isAdmin ? 'bg-slate-100 text-slate-400 hover:bg-blue-100 hover:text-blue-600 cursor-pointer hover:shadow-sm active:scale-95' : 'bg-slate-100 text-slate-300 cursor-default'}`}
+                        >
+                          -
+                        </button>
                       </div>
                     )}
                   </TableCell>
@@ -673,6 +689,132 @@ function IuranTable({ residents, payments, year, isAdmin, onSync }: { residents:
                       disabled={isDeleting}
                     >
                       Tutup
+                    </Button>
+                  </div>
+                </div>
+              </div>
+            </div>
+          )}
+        </DialogContent>
+      </Dialog>
+
+      {/* Quick Add Payment Dialog */}
+      <Dialog 
+        open={!!quickAdd} 
+        onOpenChange={(open) => {
+          if (!open) {
+            setQuickAdd(null);
+            setIsSaving(false);
+          }
+        }}
+      >
+        <DialogContent className="sm:max-w-[400px] border-none shadow-2xl rounded-3xl p-0 overflow-hidden">
+          {quickAdd && (
+            <div className="flex flex-col">
+              <div className="p-6 pb-0">
+                <DialogHeader>
+                  <div className="flex items-center justify-between mb-2">
+                    <DialogTitle className="flex items-center gap-2 text-xl font-black text-slate-800">
+                      <div className="bg-blue-100 p-2 rounded-xl">
+                        <PlusCircle className="w-5 h-5 text-blue-600" />
+                      </div>
+                      Input Iuran Cepat
+                    </DialogTitle>
+                  </div>
+                  <p className="text-[11px] text-slate-400 font-bold uppercase tracking-widest pl-11">Tambah pembayaran bulan {MONTHS.find(m => m.id === quickAdd.month)?.name}</p>
+                </DialogHeader>
+              </div>
+
+              <div className="p-6 space-y-6">
+                <div className="bg-slate-50/50 p-6 rounded-3xl border border-slate-100 space-y-4">
+                  <div className="flex justify-between items-center">
+                    <span className="text-slate-400 font-bold uppercase tracking-[0.15em] text-[9px]">Warga</span>
+                    <span className="font-black text-slate-700 uppercase tracking-tight">{quickAdd.resident.name}</span>
+                  </div>
+                  <div className="flex justify-between items-center">
+                    <span className="text-slate-400 font-bold uppercase tracking-[0.15em] text-[9px]">Tahun</span>
+                    <span className="font-black text-slate-700">{year}</span>
+                  </div>
+                  <div className="flex justify-between items-center">
+                    <span className="text-slate-400 font-bold uppercase tracking-[0.15em] text-[9px]">Bulan</span>
+                    <span className="font-black text-slate-700 uppercase">{MONTHS.find(m => m.id === quickAdd.month)?.name}</span>
+                  </div>
+                </div>
+
+                <div className="space-y-4">
+                  <div className="relative">
+                    <div className="absolute inset-y-0 left-0 pl-5 flex items-center pointer-events-none">
+                      <span className="text-slate-400 font-black text-lg">Rp</span>
+                    </div>
+                    <Input 
+                      type="number" 
+                      value={quickAmount || ''} 
+                      onChange={e => setQuickAmount(Number(e.target.value))}
+                      className="pl-14 h-16 text-2xl font-black bg-white border-2 border-slate-100 rounded-2xl focus:border-blue-500 focus:ring-4 focus:ring-blue-100 transition-all text-slate-800"
+                    />
+                  </div>
+
+                  <div className="grid gap-2">
+                    <Button 
+                      className="w-full h-14 font-black rounded-2xl bg-blue-600 text-white hover:bg-blue-700 shadow-lg shadow-blue-200 transition-all active:scale-[0.98]"
+                      disabled={isSaving || !quickAmount}
+                      onClick={async () => {
+                        setIsSaving(true);
+                        try {
+                          const pId = crypto.randomUUID();
+                          const today = new Date();
+                          const pDateStr = format(today, 'yyyy-MM-dd');
+                          const monthYearLabel = `${MONTHS.find(m=>m.id === quickAdd.month)?.name.toUpperCase()} ${year}`;
+
+                          const res = await fetch('/api/payments/record', {
+                            method: 'POST',
+                            headers: { 'Content-Type': 'application/json' },
+                            body: JSON.stringify({
+                              payment: {
+                                id: pId,
+                                residentId: quickAdd.resident.id,
+                                residentName: quickAdd.resident.name,
+                                year: year,
+                                months: [quickAdd.month],
+                                amount: quickAmount,
+                                paymentDate: pDateStr,
+                                createdAt: new Date().toISOString()
+                              },
+                              cashEntry: {
+                                id: crypto.randomUUID(),
+                                description: `PEROLEHAN IURAN BULAN ${monthYearLabel} (${quickAdd.resident.name})`,
+                                date: pDateStr,
+                                type: 'income',
+                                amount: quickAmount,
+                                category: 'Iuran',
+                                createdAt: new Date().toISOString()
+                              }
+                            })
+                          });
+
+                          if (res.ok) {
+                            onSync();
+                            setQuickAdd(null);
+                          } else {
+                            alert("Gagal menambahkan iuran.");
+                          }
+                        } catch (error) {
+                          console.error(error);
+                          alert("Gagal menyimpan data.");
+                        } finally {
+                          setIsSaving(false);
+                        }
+                      }}
+                    >
+                      {isSaving ? "Menyimpan..." : "Simpan Iuran"}
+                    </Button>
+                    <Button 
+                      variant="ghost" 
+                      className="w-full h-12 font-bold text-slate-400 text-xs" 
+                      onClick={() => setQuickAdd(null)}
+                      disabled={isSaving}
+                    >
+                      Batal
                     </Button>
                   </div>
                 </div>
