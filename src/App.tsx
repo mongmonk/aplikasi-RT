@@ -235,9 +235,20 @@ export default function App() {
       updateMeta('description', desc);
       updateMeta('og:title', pageTitle, true);
       updateMeta('og:description', desc, true);
-      if (settings.logoUrl) {
-        updateMeta('og:image', settings.logoUrl, true);
-      }
+      updateMeta('og:image', '/api/logo', true);
+
+      // Update favicon dynamically
+      const updateLink = (rel: string, href: string) => {
+        let link = document.querySelector(`link[rel="${rel}"]`) as HTMLLinkElement | null;
+        if (!link) {
+          link = document.createElement('link');
+          link.rel = rel;
+          document.head.appendChild(link);
+        }
+        link.href = href;
+      };
+      updateLink('icon', '/api/logo');
+      updateLink('apple-touch-icon', '/api/logo');
     }
   }, [settings]);
 
