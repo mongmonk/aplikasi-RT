@@ -1557,23 +1557,37 @@ function CashBookModule({ cashEntries, isAdmin, onSync }: { cashEntries: CashEnt
 
   return (
     <div className="space-y-6 pb-20">
+      {/* Floating Voice Input FAB */}
+      {isAdmin && (
+        <VoiceInputFAB
+          onParsed={(data) => {
+            if (openAdd || editingEntry) {
+              // If a dialog is open, fill its fields
+              if (openAdd) {
+                if (data.description) setNewDesc(data.description);
+                if (data.amount) setNewAmount(data.amount.toString());
+                if (data.type) setNewType(data.type);
+                if (data.date) setNewDate(new Date(data.date));
+              }
+            } else {
+              // Open add dialog with parsed data
+              setNewDesc(data.description || '');
+              setNewAmount(data.amount ? data.amount.toString() : '');
+              setNewType(data.type || 'expense');
+              if (data.date) setNewDate(new Date(data.date));
+              setOpenAdd(true);
+            }
+          }}
+        />
+      )}
+
       {/* Edit Entry Dialog */}
       <Dialog open={!!editingEntry} onOpenChange={(open) => !open && setEditingEntry(null)}>
         <DialogContent className="sm:max-w-[450px]">
           {editingEntry && (
             <div className="space-y-4">
               <DialogHeader>
-                <div className="flex items-center justify-between pr-8">
-                  <DialogTitle>Edit Transaksi Manual</DialogTitle>
-                  <VoiceInputButton 
-                    onParsed={(data) => {
-                      if (data.description) setEditingEntry({...editingEntry, description: data.description});
-                      if (data.amount) setEditingEntry({...editingEntry, amount: data.amount});
-                      if (data.type) setEditingEntry({...editingEntry, type: data.type});
-                      if (data.date) setEditingEntry({...editingEntry, date: data.date});
-                    }} 
-                  />
-                </div>
+                <DialogTitle>Edit Transaksi Manual</DialogTitle>
               </DialogHeader>
               <div className="grid gap-4 py-4">
                 <div className="grid gap-2">
@@ -1704,17 +1718,7 @@ function CashBookModule({ cashEntries, isAdmin, onSync }: { cashEntries: CashEnt
                    </DialogTrigger>
                    <DialogContent className="sm:max-w-[450px]">
                       <DialogHeader>
-                        <div className="flex items-center justify-between pr-8">
-                          <DialogTitle>Input Transaksi Manual</DialogTitle>
-                          <VoiceInputButton 
-                            onParsed={(data) => {
-                              if (data.description) setNewDesc(data.description);
-                              if (data.amount) setNewAmount(data.amount.toString());
-                              if (data.type) setNewType(data.type);
-                              if (data.date) setNewDate(new Date(data.date));
-                            }} 
-                          />
-                        </div>
+                        <DialogTitle>Input Transaksi Manual</DialogTitle>
                       </DialogHeader>
                       <div className="grid gap-4 py-4">
                         <div className="grid gap-2">
@@ -2143,84 +2147,168 @@ function ResidentForm({
   );
 }
 
-function VoiceInputButton({ onParsed }: { onParsed: (data: any) => void }) {
+function VoiceInputFAB({ onParsed }: { onParsed: (data: any) => void }) {
   const [isListening, setIsListening] = useState(false);
+  const [lastText, setLastText] = useState('');
+
+  const MONTH_MAP: Record<string, number> = {
+    'januari': 1, 'februari': 2, 'maret': 3, 'april': 4,
+    'mei': 5, 'juni': 6, 'juli': 7, 'agustus': 8,
+    'september': 9, 'oktober': 10, 'november': 11, 'desember': 12,
+    'jan': 1, 'feb': 2, 'mar': 3, 'apr': 4,
+    'ags': 8, 'sep': 9, 'okt': 10, 'nov': 11, 'des': 12
+  };
+
+  const parseVoice = (text: string) => {
+    const lowerText = text.toLowerCase();
+
+    // 1. Detect type
+    let type = 'expense';
+    const incomeKw = ['masuk', 'iuran', 'terima', 'donasi', 'setoran', 'saldo', 'pemasukan', 'pendapatan'];
+    if (incomeKw.some(kw => lowerText.includes(kw))) type = 'income';
+
+    // 2. Extract amount - match patterns like "Rp50.000", "50000", "50 ribu", "1 juta"
+    let amount = 0;
+    // Try "Rp" prefix patterns first: "rp50.000", "rp 50.000"
+    const rpMatch = lowerText.match(/rp\.?\s*(\d[\d.,]*)/);
+    if (rpMatch) {
+      amount = parseInt(rpMatch[1].replace(/[.,]/g, '')) || 0;
+    }
+    // Try "ribu" / "juta" patterns: "50 ribu", "1,5 juta"
+    if (!amount) {
+      const ribuMatch = lowerText.match(/(\d+[.,]?\d*)\s*ribu/);
+      if (ribuMatch) amount = Math.round(parseFloat(ribuMatch[1].replace(',', '.')) * 1000);
+      const jutaMatch = lowerText.match(/(\d+[.,]?\d*)\s*juta/);
+      if (jutaMatch) amount = Math.round(parseFloat(jutaMatch[1].replace(',', '.')) * 1000000);
+    }
+    // Fallback: find standalone number groups (but NOT dates)
+    if (!amount) {
+      // Remove date-like patterns first (e.g., "19 maret 2026")
+      let cleaned = lowerText;
+      const monthNames = Object.keys(MONTH_MAP);
+      // Remove "tanggal X" and "DD bulan YYYY" patterns
+      cleaned = cleaned.replace(/tanggal\s+\d+/g, '');
+      for (const mn of monthNames) {
+        cleaned = cleaned.replace(new RegExp(`\\d+\\s+${mn}\\s+\\d{4}`, 'g'), '');
+        cleaned = cleaned.replace(new RegExp(`\\d+\\s+${mn}`, 'g'), '');
+      }
+      const numMatch = cleaned.match(/(\d[\d.,]{2,})/);
+      if (numMatch) amount = parseInt(numMatch[1].replace(/[.,]/g, '')) || 0;
+    }
+
+    // 3. Extract date
+    let dateStr = format(new Date(), 'yyyy-MM-dd');
+    if (lowerText.includes('kemarin')) {
+      const d = new Date(); d.setDate(d.getDate() - 1);
+      dateStr = format(d, 'yyyy-MM-dd');
+    } else if (lowerText.includes('lusa') || lowerText.includes('kemarin lusa')) {
+      const d = new Date(); d.setDate(d.getDate() - 2);
+      dateStr = format(d, 'yyyy-MM-dd');
+    } else {
+      // Try to match "tanggal DD bulan" or "DD bulan YYYY" or "DD bulan"
+      for (const [monthName, monthNum] of Object.entries(MONTH_MAP)) {
+        const withYear = lowerText.match(new RegExp(`(\\d{1,2})\\s+${monthName}\\s+(\\d{4})`));
+        if (withYear) {
+          const day = parseInt(withYear[1]);
+          const yr = parseInt(withYear[2]);
+          if (day >= 1 && day <= 31) {
+            dateStr = `${yr}-${String(monthNum).padStart(2, '0')}-${String(day).padStart(2, '0')}`;
+            break;
+          }
+        }
+        const noYear = lowerText.match(new RegExp(`(\\d{1,2})\\s+${monthName}`));
+        if (noYear) {
+          const day = parseInt(noYear[1]);
+          if (day >= 1 && day <= 31) {
+            dateStr = `${new Date().getFullYear()}-${String(monthNum).padStart(2, '0')}-${String(day).padStart(2, '0')}`;
+            break;
+          }
+        }
+      }
+      // Try "tanggal DD"
+      if (dateStr === format(new Date(), 'yyyy-MM-dd')) {
+        const tglMatch = lowerText.match(/tanggal\s+(\d{1,2})/);
+        if (tglMatch) {
+          const day = parseInt(tglMatch[1]);
+          if (day >= 1 && day <= 31) {
+            const now = new Date();
+            dateStr = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(day).padStart(2, '0')}`;
+          }
+        }
+      }
+    }
+
+    // 4. Clean description - remove amount and date parts
+    let desc = text;
+    // Remove Rp amounts
+    desc = desc.replace(/[Rr]p\.?\s*\d[\d.,]*/g, '').trim();
+    // Remove "ribu"/"juta" amounts  
+    desc = desc.replace(/\d+[.,]?\d*\s*(ribu|juta)/gi, '').trim();
+    // Remove "tanggal DD bulan YYYY" patterns
+    for (const mn of Object.keys(MONTH_MAP)) {
+      const re1 = new RegExp(`tanggal\\s+\\d+\\s+${mn}\\s+\\d{4}`, 'gi');
+      const re2 = new RegExp(`tanggal\\s+\\d+\\s+${mn}`, 'gi');
+      const re3 = new RegExp(`\\d+\\s+${mn}\\s+\\d{4}`, 'gi');
+      const re4 = new RegExp(`\\d+\\s+${mn}`, 'gi');
+      desc = desc.replace(re1, '').replace(re2, '').replace(re3, '').replace(re4, '').trim();
+    }
+    desc = desc.replace(/tanggal\s+\d+/gi, '').trim();
+    desc = desc.replace(/kemarin\s*(lusa)?/gi, '').trim();
+    // Clean up multiple spaces
+    desc = desc.replace(/\s{2,}/g, ' ').trim();
+    desc = desc.charAt(0).toUpperCase() + desc.slice(1);
+
+    return { description: desc, amount, type, date: dateStr };
+  };
 
   const startListening = () => {
     const SpeechRecognition = (window as any).SpeechRecognition || (window as any).webkitSpeechRecognition;
     if (!SpeechRecognition) {
-      alert("Browser Anda tidak mendukung fitur suara.");
+      alert('Browser Anda tidak mendukung fitur suara.');
       return;
     }
-
     const recognition = new SpeechRecognition();
     recognition.lang = 'id-ID';
     recognition.interimResults = false;
     recognition.maxAlternatives = 1;
-
-    recognition.onstart = () => setIsListening(true);
+    recognition.onstart = () => { setIsListening(true); setLastText(''); };
     recognition.onend = () => setIsListening(false);
     recognition.onerror = () => setIsListening(false);
-
     recognition.onresult = (event: any) => {
       const text = event.results[0][0].transcript;
-      const lowerText = text.toLowerCase();
-      
-      // LOGIKA PARSING LOKAL (TANPA API)
-      
-      // 1. Deteksi Tipe (Pemasukan vs Pengeluaran)
-      let type = 'expense';
-      const incomeKeywords = ['masuk', 'iuran', 'terima', 'donasi', 'setoran', 'saldo'];
-      if (incomeKeywords.some(kw => lowerText.includes(kw))) {
-        type = 'income';
-      }
-
-      // 2. Ekstrak Nominal (Angka)
-      // Membersihkan titik/koma yang biasa muncul di pengenalan suara Indonesia (misal: 10.000)
-      const digitsOnly = lowerText.replace(/[^\d]/g, '');
-      const amount = parseInt(digitsOnly) || 0;
-
-      // 3. Deteksi Tanggal Sederhana
-      let dateStr = format(new Date(), 'yyyy-MM-dd');
-      if (lowerText.includes('kemarin')) {
-        const d = new Date();
-        d.setDate(d.getDate() - 1);
-        dateStr = format(d, 'yyyy-MM-dd');
-      }
-
-      // 4. Bersihkan Deskripsi
-      // Mengambil kalimat asli tapi merapikan huruf kapital di awal
-      const description = text.charAt(0).toUpperCase() + text.slice(1);
-
-      onParsed({
-        description,
-        amount,
-        type,
-        date: dateStr
-      });
+      setLastText(text);
+      onParsed(parseVoice(text));
     };
-
     recognition.start();
   };
 
   return (
-    <Button 
-      variant="outline" 
-      size="sm" 
-      onClick={startListening} 
-      disabled={isListening}
-      className={`rounded-full h-8 px-3 flex items-center gap-1.5 transition-all
-        ${isListening ? 'bg-red-50 text-red-600 border-red-200 animate-pulse' : 'hover:bg-slate-100'}`}
-    >
-      {isListening ? (
-        <MicOff className="w-3.5 h-3.5" />
-      ) : (
-        <Mic className="w-3.5 h-3.5" />
+    <div className="fixed bottom-6 right-6 z-50 flex flex-col items-end gap-2">
+      {lastText && (
+        <div className="bg-slate-900 text-white text-[11px] px-3 py-2 rounded-xl shadow-lg max-w-[250px] animate-in fade-in slide-in-from-bottom-2">
+          <div className="text-slate-400 text-[9px] font-bold uppercase mb-0.5">Terdengar:</div>
+          <div className="font-medium">"{lastText}"</div>
+        </div>
       )}
-      <span className="text-[10px] font-bold uppercase tracking-tight">
-        {isListening ? 'Mendengarkan...' : 'Input Suara (Lokal)'}
-      </span>
-    </Button>
+      <button
+        onClick={startListening}
+        disabled={isListening}
+        className={`w-14 h-14 rounded-full flex items-center justify-center shadow-xl transition-all active:scale-90 ${
+          isListening
+            ? 'bg-red-500 shadow-red-200 animate-pulse scale-110'
+            : 'bg-blue-600 hover:bg-blue-500 shadow-blue-200 hover:scale-105'
+        }`}
+      >
+        {isListening ? (
+          <MicOff className="w-6 h-6 text-white" />
+        ) : (
+          <Mic className="w-6 h-6 text-white" />
+        )}
+      </button>
+      {isListening && (
+        <div className="text-[10px] font-bold text-red-500 animate-pulse text-center">Mendengarkan...</div>
+      )}
+    </div>
   );
 }
 
