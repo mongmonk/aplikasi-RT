@@ -1,6 +1,6 @@
 import express from "express";
 import path from "path";
-import { createClient } from "@libsql/client";
+import { createClient } from "@libsql/client/web";
 import dotenv from "dotenv";
 import cors from "cors";
 
@@ -404,7 +404,8 @@ app.use(express.json());
   // Vite middleware for development
   if (process.env.NODE_ENV !== "production") {
     // Only import vite when in dev mode
-    import("vite").then(async (vite) => {
+    const viteName = "vite";
+    import(viteName).then(async (vite) => {
       const viteServer = await vite.createServer({
         server: { middlewareMode: true },
         appType: "spa",
