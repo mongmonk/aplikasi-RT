@@ -648,7 +648,7 @@ function IuranStatsSummary({ residents, payments, year, defaultIuran }: { reside
   const belum = residentPaidMonths.filter(r => r.count === 0).length;
 
   return (
-    <div className="space-y-6">
+    <div className="p-4 md:p-5 space-y-6">
       {/* Summary Cards */}
       <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
         <div className="bg-emerald-50 rounded-xl p-3 border border-emerald-100">
