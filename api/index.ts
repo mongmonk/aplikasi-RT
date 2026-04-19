@@ -338,6 +338,28 @@ app.post("/api/announcements", async (req, res) => {
 });
 
 // Settings
+app.get("/api/logo", async (req, res) => {
+  try {
+    const result = await client.execute("SELECT logoUrl FROM app_settings WHERE id = 'global'");
+    const logoUrl = result.rows[0]?.logoUrl as string;
+    if (logoUrl && logoUrl.startsWith('data:image')) {
+      const parts = logoUrl.split(';');
+      const mimeType = parts[0].split(':')[1];
+      const base64Data = parts[1].split(',')[1];
+      const imgBuffer = Buffer.from(base64Data, 'base64');
+      res.writeHead(200, {
+        'Content-Type': mimeType,
+        'Content-Length': imgBuffer.length
+      });
+      res.end(imgBuffer);
+    } else {
+      res.status(404).send("Not found");
+    }
+  } catch (error) {
+    res.status(500).send("Server Error");
+  }
+});
+
 app.get("/api/settings", async (req, res) => {
   try {
     const result = await client.execute("SELECT * FROM app_settings WHERE id = 'global'");

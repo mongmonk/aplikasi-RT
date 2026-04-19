@@ -210,6 +210,37 @@ export default function App() {
     return () => clearInterval(interval);
   }, []);
 
+  // Update Document Meta for SEO
+  useEffect(() => {
+    if (settings) {
+      const pageTitle = `RT ${settings.rtNumber} ${settings.rwNumber ? `RW ${settings.rwNumber} ` : ''}${settings.village} - Manajemen Keuangan`;
+      const desc = `Sistem Informasi Keuangan dan Buku Kas Umum Warga. RT ${settings.rtNumber} ${settings.rwNumber ? `RW ${settings.rwNumber} ` : ''}${settings.dusun ? `${settings.dusun} ` : ''}${settings.village} ${settings.district} ${settings.regency}`;
+      
+      document.title = pageTitle;
+      
+      const updateMeta = (name: string, content: string, isProperty = false) => {
+        let meta = document.querySelector(`meta[${isProperty ? 'property' : 'name'}="${name}"]`);
+        if (!meta) {
+          meta = document.createElement('meta');
+          if (isProperty) {
+            meta.setAttribute('property', name);
+          } else {
+            meta.setAttribute('name', name);
+          }
+          document.head.appendChild(meta);
+        }
+        meta.setAttribute('content', content);
+      };
+
+      updateMeta('description', desc);
+      updateMeta('og:title', pageTitle, true);
+      updateMeta('og:description', desc, true);
+      if (settings.logoUrl) {
+        updateMeta('og:image', settings.logoUrl, true);
+      }
+    }
+  }, [settings]);
+
   const handleLogout = () => signOut(auth);
 
   // Global Stats Calculation
