@@ -707,56 +707,6 @@ function IuranStatsSummary({ residents, payments, year, defaultIuran }: { reside
         </div>
       </div>
 
-      {/* Status Breakdown */}
-      <div>
-        <div className="text-xs font-bold text-slate-500 uppercase tracking-wider mb-3">Status Pembayaran Warga</div>
-        <div className="grid grid-cols-1 md:grid-cols-3 gap-2">
-          {/* Lunas */}
-          <div className="bg-emerald-50/50 border border-emerald-100 rounded-xl p-3">
-            <div className="flex items-center gap-2 mb-2">
-              <div className="w-2 h-2 rounded-full bg-emerald-500" />
-              <span className="text-[11px] font-bold text-emerald-700">Lunas (12/12)</span>
-              <span className="ml-auto text-xs font-black text-emerald-600">{lunas}</span>
-            </div>
-            <div className="space-y-0.5 max-h-32 overflow-y-auto">
-              {residentPaidMonths.filter(r => r.count === 12).map(r => (
-                <div key={r.name} className="text-[10px] text-emerald-600 font-medium truncate">✓ {r.name}</div>
-              ))}
-              {lunas === 0 && <div className="text-[10px] text-slate-400 italic">Belum ada</div>}
-            </div>
-          </div>
-
-          {/* Sebagian */}
-          <div className="bg-amber-50/50 border border-amber-100 rounded-xl p-3">
-            <div className="flex items-center gap-2 mb-2">
-              <div className="w-2 h-2 rounded-full bg-amber-500" />
-              <span className="text-[11px] font-bold text-amber-700">Sebagian</span>
-              <span className="ml-auto text-xs font-black text-amber-600">{partial}</span>
-            </div>
-            <div className="space-y-0.5 max-h-32 overflow-y-auto">
-              {residentPaidMonths.filter(r => r.count > 0 && r.count < 12).map(r => (
-                <div key={r.name} className="text-[10px] text-amber-600 font-medium truncate">{r.count}/12 — {r.name}</div>
-              ))}
-              {partial === 0 && <div className="text-[10px] text-slate-400 italic">Belum ada</div>}
-            </div>
-          </div>
-
-          {/* Belum Bayar */}
-          <div className="bg-rose-50/50 border border-rose-100 rounded-xl p-3">
-            <div className="flex items-center gap-2 mb-2">
-              <div className="w-2 h-2 rounded-full bg-rose-500" />
-              <span className="text-[11px] font-bold text-rose-700">Belum Bayar</span>
-              <span className="ml-auto text-xs font-black text-rose-600">{belum}</span>
-            </div>
-            <div className="space-y-0.5 max-h-32 overflow-y-auto">
-              {residentPaidMonths.filter(r => r.count === 0).map(r => (
-                <div key={r.name} className="text-[10px] text-rose-500 font-medium truncate">✗ {r.name}</div>
-              ))}
-              {belum === 0 && <div className="text-[10px] text-slate-400 italic">Semua sudah bayar! 🎉</div>}
-            </div>
-          </div>
-        </div>
-      </div>
     </div>
   );
 }
