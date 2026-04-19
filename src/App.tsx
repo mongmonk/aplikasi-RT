@@ -1605,7 +1605,7 @@ function CashBookModule({ cashEntries, isAdmin, onSync }: { cashEntries: CashEnt
                       onValueChange={(v: any) => setEditingEntry({...editingEntry, type: v})}
                     >
                       <SelectTrigger>
-                        <SelectValue />
+                        <SelectValue>{editingEntry.type === 'income' ? 'Pemasukan' : 'Pengeluaran'}</SelectValue>
                       </SelectTrigger>
                       <SelectContent>
                         <SelectItem value="income">Pemasukan</SelectItem>
@@ -1730,7 +1730,7 @@ function CashBookModule({ cashEntries, isAdmin, onSync }: { cashEntries: CashEnt
                             <Label>Tipe</Label>
                             <Select value={newType} onValueChange={(v: any) => setNewType(v)}>
                               <SelectTrigger>
-                                <SelectValue />
+                                <SelectValue>{newType === 'income' ? 'Pemasukan' : 'Pengeluaran'}</SelectValue>
                               </SelectTrigger>
                               <SelectContent>
                                 <SelectItem value="income">Pemasukan</SelectItem>
