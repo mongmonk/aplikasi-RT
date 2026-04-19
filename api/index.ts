@@ -1,5 +1,6 @@
 import express from "express";
 import path from "path";
+import fs from "fs";
 import { createClient } from "@libsql/client/web";
 import dotenv from "dotenv";
 import cors from "cors";
@@ -433,9 +434,53 @@ app.post("/api/users/:uid/activate", async (req, res) => {
   }
 });
 
+// --- SSR: Serve dynamic HTML with meta tags from DB ---
+let cachedHtml: string | null = null;
+
+function getHtmlTemplate(): string | null {
+  if (cachedHtml) return cachedHtml;
+  const tryPaths = [
+    path.join(process.cwd(), 'dist', 'index.html'),
+    path.join(__dirname, '..', 'dist', 'index.html'),
+    path.join(__dirname, 'dist', 'index.html'),
+  ];
+  for (const p of tryPaths) {
+    try {
+      cachedHtml = fs.readFileSync(p, 'utf-8');
+      return cachedHtml;
+    } catch {}
+  }
+  return null;
+}
+
+async function serveDynamicHtml(_req: express.Request, res: express.Response) {
+  const template = getHtmlTemplate();
+  if (!template) {
+    res.status(404).send('Not found');
+    return;
+  }
+
+  let title = 'Aplikasi RT-Ku';
+  let desc = 'Sistem Informasi Keuangan dan Buku Kas Warga';
+
+  try {
+    const result = await client.execute("SELECT * FROM app_settings WHERE id = 'global'");
+    const s = result.rows[0];
+    if (s) {
+      title = `RT ${s.rtNumber}${s.rwNumber ? ` RW ${s.rwNumber}` : ''} ${s.village} - Aplikasi RT-Ku`;
+      desc = `Sistem Informasi Keuangan dan Buku Kas. RT ${s.rtNumber}${s.rwNumber ? ` RW ${s.rwNumber}` : ''}${s.dusun ? ` ${s.dusun}` : ''} ${s.village} ${s.district} ${s.regency}`;
+    }
+  } catch (e) {
+    console.error('SSR settings fetch error:', e);
+  }
+
+  const html = template.replaceAll('__APP_TITLE__', title).replaceAll('__APP_DESC__', desc);
+  res.setHeader('Content-Type', 'text/html; charset=utf-8');
+  res.send(html);
+}
+
 // Vite middleware for development
 if (process.env.NODE_ENV !== "production") {
-  // Only import vite when in dev mode
   const viteName = "vite";
   import(viteName).then(async (vite) => {
     const viteServer = await vite.createServer({
@@ -445,23 +490,27 @@ if (process.env.NODE_ENV !== "production") {
     app.use(viteServer.middlewares);
   });
 } else {
-  // Only serve static files locally if not on Vercel
   if (!process.env.VERCEL) {
     const distPath = path.join(process.cwd(), 'dist');
     app.use(express.static(distPath));
-    app.get('*', (req, res) => {
-      res.sendFile(path.join(distPath, 'index.html'));
-    });
   }
+  // Serve dynamic HTML with SSR meta tags for all page routes
+  app.get('*', async (req, res, next) => {
+    if (req.path.startsWith('/api')) return next();
+    await serveDynamicHtml(req, res);
+  });
 }
 
-// Only start the server directly if not running on Vercel
+// Initialize DB schema
+if (process.env.VERCEL) {
+  initDb().catch(console.error);
+}
+
 if (!process.env.VERCEL) {
-app.listen(PORT, "0.0.0.0", async () => {
-  await initDb();
-  console.log(`Server running on http://localhost:${PORT}`);
-});
+  app.listen(PORT, "0.0.0.0", async () => {
+    await initDb();
+    console.log(`Server running on http://localhost:${PORT}`);
+  });
 }
 
-// Export the Express API for Vercel
 export default app;
