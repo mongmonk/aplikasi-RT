@@ -81,6 +81,11 @@ async function initDb() {
       await client.execute(q);
     }
 
+    // Schema Migrations (Add missing columns safely)
+    await client.execute("ALTER TABLE app_settings ADD COLUMN dusun TEXT").catch(()=>{});
+    await client.execute("ALTER TABLE app_settings ADD COLUMN rwNumber TEXT").catch(()=>{});
+    await client.execute("ALTER TABLE app_settings ADD COLUMN logoUrl TEXT").catch(()=>{});
+
     // Add default settings if not exists
     const settingsCheck = await client.execute("SELECT count(*) as count FROM app_settings WHERE id = 'global'");
     if (Number(settingsCheck.rows[0].count) === 0) {
@@ -343,11 +348,11 @@ app.get("/api/settings", async (req, res) => {
 });
 
 app.post("/api/settings", async (req, res) => {
-  const { rtNumber, village, district, regency, defaultIuran } = req.body;
+  const { rtNumber, rwNumber, dusun, village, district, regency, defaultIuran, logoUrl } = req.body;
   try {
     await client.execute({
-      sql: "INSERT INTO app_settings (id, rtNumber, village, district, regency, defaultIuran) VALUES ('global', ?, ?, ?, ?, ?) ON CONFLICT(id) DO UPDATE SET rtNumber=excluded.rtNumber, village=excluded.village, district=excluded.district, regency=excluded.regency, defaultIuran=excluded.defaultIuran",
-      args: [rtNumber, village, district, regency, defaultIuran]
+      sql: "INSERT INTO app_settings (id, rtNumber, rwNumber, dusun, village, district, regency, defaultIuran, logoUrl) VALUES ('global', ?, ?, ?, ?, ?, ?, ?, ?) ON CONFLICT(id) DO UPDATE SET rtNumber=excluded.rtNumber, rwNumber=excluded.rwNumber, dusun=excluded.dusun, village=excluded.village, district=excluded.district, regency=excluded.regency, defaultIuran=excluded.defaultIuran, logoUrl=excluded.logoUrl",
+      args: [rtNumber, rwNumber || null, dusun || null, village, district, regency, defaultIuran, logoUrl || null]
     });
     res.json({ success: true });
   } catch (error) {

@@ -46,6 +46,7 @@ export interface AppUser {
 
 export interface AppSettings {
   rtNumber: string;
+  rwNumber?: string;
   dusun?: string;
   village: string; // Desa/Kelurahan
   district: string; // Kecamatan

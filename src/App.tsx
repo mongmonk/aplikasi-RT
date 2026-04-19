@@ -255,7 +255,7 @@ export default function App() {
           </div>
           <div className="flex flex-col">
             <span className="font-extrabold text-sm tracking-tight uppercase leading-none">RT-Ku</span>
-            {settings && <span className="text-[8px] font-bold text-blue-400 uppercase tracking-widest mt-0.5">RT {settings.rtNumber}</span>}
+            {settings && <span className="text-[8px] font-bold text-blue-400 uppercase tracking-widest mt-0.5 truncate max-w-[200px]">RT {settings.rtNumber} {settings.rwNumber && `RW ${settings.rwNumber}`} {settings.village}</span>}
           </div>
         </div>
         <button onClick={() => setIsSidebarOpen(!isSidebarOpen)} className="p-1">
@@ -296,13 +296,11 @@ export default function App() {
           </div>
           
           {settings && (
-            <div className="pl-0.5 space-y-0.5 border-l-2 border-slate-800 ml-1.5 pl-3 mt-1 py-1">
-               <div className="text-[10px] font-black text-blue-400 uppercase tracking-[0.1em] leading-tight flex items-center gap-1.5 transition-colors">
-                  <Building className="w-2.5 h-2.5" /> RT {settings.rtNumber} {settings.dusun && `/ ${settings.dusun}`}
-               </div>
-               <div className="text-[9px] text-slate-500 font-bold uppercase leading-tight truncate flex items-center gap-1.5">
-                  <MapPin className="w-2.5 h-2.5" /> {settings.village}, {settings.district}
-               </div>
+            <div className="pl-0.5 border-l-2 border-slate-800 ml-1.5 pl-3 mt-1 py-1 flex items-start gap-1.5 transition-colors">
+               <MapPin className="w-2.5 h-2.5 mt-0.5 shrink-0 text-blue-500" />
+               <span className="text-[9px] text-slate-400 font-bold uppercase leading-[1.4] tracking-wider line-clamp-2">
+                 RT {settings.rtNumber} {settings.rwNumber && `RW ${settings.rwNumber} `}{settings.dusun && `${settings.dusun} `}{settings.village} {settings.district} {settings.regency}
+               </span>
             </div>
           )}
         </div>
@@ -1950,6 +1948,7 @@ function VoiceInputButton({ onParsed }: { onParsed: (data: any) => void }) {
 function SettingsForm({ settings, onSync }: { settings: AppSettings | null, onSync: () => void }) {
   const [loading, setLoading] = useState(false);
   const [rtNumber, setRtNumber] = useState(settings?.rtNumber || '');
+  const [rwNumber, setRwNumber] = useState(settings?.rwNumber || '');
   const [dusun, setDusun] = useState(settings?.dusun || '');
   const [village, setVillage] = useState(settings?.village || '');
   const [district, setDistrict] = useState(settings?.district || '');
@@ -1985,6 +1984,7 @@ function SettingsForm({ settings, onSync }: { settings: AppSettings | null, onSy
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           rtNumber,
+          rwNumber,
           dusun,
           village,
           district,
@@ -2020,9 +2020,15 @@ function SettingsForm({ settings, onSync }: { settings: AppSettings | null, onSy
       <div className="grid gap-6">
         <div className="flex flex-col md:flex-row gap-6">
           <div className="flex-1 space-y-4">
-            <div className="grid gap-1.5">
-              <Label className="text-[10px] uppercase font-black text-slate-400">Nomor RT *</Label>
-              <Input value={rtNumber} onChange={e => setRtNumber(e.target.value)} placeholder="005" className="h-11 bg-slate-50 border-none" />
+            <div className="grid grid-cols-2 gap-4">
+              <div className="grid gap-1.5">
+                <Label className="text-[10px] uppercase font-black text-slate-400">Nomor RT *</Label>
+                <Input value={rtNumber} onChange={e => setRtNumber(e.target.value)} placeholder="005" className="h-11 bg-slate-50 border-none" />
+              </div>
+              <div className="grid gap-1.5">
+                <Label className="text-[10px] uppercase font-black text-slate-400">Nomor RW (Opsional)</Label>
+                <Input value={rwNumber} onChange={e => setRwNumber(e.target.value)} placeholder="002" className="h-11 bg-slate-50 border-none" />
+              </div>
             </div>
             <div className="grid gap-1.5">
               <Label className="text-[10px] uppercase font-black text-slate-400">Dusun (Opsional)</Label>
