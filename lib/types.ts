@@ -33,6 +33,7 @@ export interface CashEntry {
   category: string;
   paymentId?: string; // Linked to a payment
   isGrouped?: boolean; // UI only consolidation flag
+  underlyingIds?: string[]; // IDs of the combined cash entries
 }
 
 export interface AppUser {

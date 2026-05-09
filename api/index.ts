@@ -234,6 +234,21 @@ app.delete("/api/cash-book/:id", async (req, res) => {
   }
 });
 
+app.put("/api/cash-book/batch", async (req, res) => {
+  const { ids, date } = req.body;
+  if (!ids || !Array.isArray(ids) || ids.length === 0) return res.status(400).json({ error: "No ids provided" });
+  try {
+    const placeholders = ids.map(() => '?').join(',');
+    await client.execute({
+      sql: `UPDATE cash_book SET date = ? WHERE id IN (${placeholders})`,
+      args: [date, ...ids]
+    });
+    res.json({ success: true });
+  } catch (error) {
+    res.status(500).json({ error: "Failed to batch update cash entries" });
+  }
+});
+
 app.put("/api/cash-book/:id", async (req, res) => {
   const { description, date, type, amount } = req.body;
   try {

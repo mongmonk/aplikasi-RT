@@ -1450,7 +1450,8 @@ function CashBookModule({ cashEntries, isAdmin, onSync }: { cashEntries: CashEnt
         type: 'income',
         amount: totalIuran,
         category: 'Iuran',
-        isGrouped: true
+        isGrouped: true,
+        underlyingIds: iuranList.map(e => e.id)
       });
     }
 
@@ -1585,24 +1586,42 @@ function CashBookModule({ cashEntries, isAdmin, onSync }: { cashEntries: CashEnt
                     type="number" 
                     value={editingEntry.amount} 
                     onChange={e => setEditingEntry({...editingEntry, amount: parseInt(e.target.value) || 0})} 
+                    disabled={editingEntry.isGrouped}
                   />
+                  {editingEntry.isGrouped && (
+                    <p className="text-[10px] text-orange-600 font-bold leading-tight">
+                      * Nominal rekap iuran tidak dapat diubah di sini. Anda hanya dapat mengubah tanggal kapan rekap ini dicatat.
+                    </p>
+                  )}
                 </div>
               </div>
               <DialogFooter>
                 <Button 
                   onClick={async () => {
                     try {
-                      const res = await fetch(`/api/cash-book/${editingEntry.id}`, {
-                        method: 'PUT',
-                        headers: { 'Content-Type': 'application/json' },
-                        body: JSON.stringify({
-                          description: editingEntry.description,
-                          date: editingEntry.date,
-                          type: editingEntry.type,
-                          amount: editingEntry.amount
-                        })
-                      });
-                      if (res.ok) onSync();
+                      if (editingEntry.isGrouped) {
+                        const res = await fetch(`/api/cash-book/batch`, {
+                          method: 'PUT',
+                          headers: { 'Content-Type': 'application/json' },
+                          body: JSON.stringify({
+                            ids: editingEntry.underlyingIds,
+                            date: editingEntry.date
+                          })
+                        });
+                        if (res.ok) onSync();
+                      } else {
+                        const res = await fetch(`/api/cash-book/${editingEntry.id}`, {
+                          method: 'PUT',
+                          headers: { 'Content-Type': 'application/json' },
+                          body: JSON.stringify({
+                            description: editingEntry.description,
+                            date: editingEntry.date,
+                            type: editingEntry.type,
+                            amount: editingEntry.amount
+                          })
+                        });
+                        if (res.ok) onSync();
+                      }
                     } catch (e) { console.error(e); }
                     setEditingEntry(null);
                   }} 
@@ -1766,7 +1785,7 @@ function CashBookModule({ cashEntries, isAdmin, onSync }: { cashEntries: CashEnt
                       {item.type === 'expense' ? `Rp ${item.amount.toLocaleString('id-ID')}` : '-'}
                     </TableCell>
                     <TableCell className="pr-8 py-4 text-right">
-                       {isAdmin && !item.isGrouped && (
+                       {isAdmin && (
                          <div className="flex items-center justify-end gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
                             {deletingId === item.id ? (
                               <div className="flex items-center gap-1 bg-white border border-red-100 p-1 rounded-lg animate-in fade-in slide-in-from-right-2 duration-200">
